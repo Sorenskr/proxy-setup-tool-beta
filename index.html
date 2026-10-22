@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MatrixNode IP 二维码生成：支持 Egern (iOS) 与 v2rayNG (Android) 的节点分发、台账打表与逆向提取，全程本地解析。">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#8ec5fc" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#151a28" media="(prefers-color-scheme: dark)">
+    <title>MatrixNode IP 二维码生成</title>
+
+    <link rel="icon" href="images/logo.png" type="image/png">
+    <link rel="preload" as="image" href="images/logo.png" fetchpriority="high">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link rel="stylesheet" href="css/style.css">
+
+    <!-- 第三方依赖：defer 保证按序执行且不阻塞解析，integrity 防止 CDN 内容被篡改 -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"
+            integrity="sha384-HGmnkDZJy7mRkoARekrrj0VjEFSh9a0Z8qxGri/kTTAJkgR8hqD1lHsYSh3JdzRi"
+            crossorigin="anonymous" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
+            integrity="sha384-o5uz97et3bErHvpKfD4Jz4n0JfhJDWABFuF4NP+iEEDxE1VwMWJ19QGR0lqFZnr6"
+            crossorigin="anonymous" defer></script>
+</head>
+<body class="light-mode">
+    <noscript>
+        <div class="noscript-tip">⚠️ 当前浏览器已禁用 JavaScript，二维码生成、台账打表等交互功能不可用。</div>
+    </noscript>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <canvas id="bgCanvas" aria-hidden="true"></canvas>
+
+    <!-- 🎵 隐匿式悬浮音乐控制台 -->
+    <div class="music-player-widget" role="group" aria-label="背景音乐控制台">
+        <audio id="bgAudio" preload="none"></audio>
+        <img class="music-disc" id="musicDisc" src="images/logo.png" width="36" height="36" decoding="async"
+             role="button" tabindex="0" aria-label="播放或暂停背景音乐"
+             onclick="toggleMusic()" title="点击播放/暂停" alt="专辑封面">
+        <div class="music-content-wrap">
+            <div class="music-header">
+                <div class="music-info">
+                    <div class="music-title" id="musicTitle">加载中...</div>
+                    <div class="music-time"><span id="currentTime">0:00</span> / <span id="totalTime">0:00</span></div>
+                </div>
+                <div class="music-controls">
+                    <button type="button" class="ctrl-btn" id="playModeBtn" onclick="togglePlayMode()" title="顺序播放" aria-label="切换播放模式">🔁</button>
+                    <button type="button" class="ctrl-btn" onclick="prevTrack()" title="上一首" aria-label="上一首">⏮</button>
+                    <button type="button" class="ctrl-btn play-btn" id="playPauseBtn" onclick="toggleMusic()" title="播放/暂停" aria-label="播放或暂停">▶</button>
+                    <button type="button" class="ctrl-btn" onclick="nextTrack()" title="下一首" aria-label="下一首">⏭</button>
+                </div>
+            </div>
+            <div class="progress-container" onclick="seekMusic(event)">
+                <div class="progress-bar" id="musicProgress"></div>
+            </div>
+        </div>
+    </div>
+
+    <button type="button" class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="切换昼夜环境">🌙 夜间模式</button>
+    <button type="button" class="feedback-btn" onclick="openFeedbackModal()" title="向组长提交系统建议">💡 建议</button>
+
+    <div class="contact-float">
+        <div class="contact-item" title="钉钉">
+            <img src="images/qiwei_icon.png" width="22" height="22" loading="lazy" decoding="async" alt="钉钉" onerror="imgFallback(this)">
+            <span class="emoji-fallback">🏢</span>
+            <div class="qr-popup"><img src="images/wx_qr.jpg" width="140" height="140" loading="lazy" decoding="async" alt="钉钉二维码"></div>
+        </div>
+        <div class="contact-item" title="个人微信">
+            <img src="images/wechat_icon.png" width="22" height="22" loading="lazy" decoding="async" alt="微信" onerror="imgFallback(this)">
+            <span class="emoji-fallback">💬</span>
+            <div class="qr-popup"><img src="images/personal_wx.jpg" width="140" height="140" loading="lazy" decoding="async" alt="微信二维码"></div>
+        </div>
+        <a href="https://t.me/Sorenskys" target="_blank" rel="noopener noreferrer" class="contact-item contact-link" title="Telegram">
+            <img src="images/tg_icon.png" width="22" height="22" loading="lazy" decoding="async" alt="Telegram" onerror="imgFallback(this)">
+            <span class="emoji-fallback">✈️</span>
+        </a>
+    </div>
+
+    <main class="container" id="mainWrapper">
+        <div class="sticky-top">
+            <header class="header">
+                <button type="button" class="logo-box" onclick="triggerAdminCount()" title="系统标识" aria-label="系统标识">
+                    <img src="images/logo.png" alt="Logo" class="main-logo" width="42" height="42" decoding="async" onerror="imgFallback(this)">
+                    <span class="emoji-fallback is-lg">🌐</span>
+                </button>
+                <div class="header-title">
+                    <h1>MatrixNode IP 二维码生成</h1>
+                    <div class="header-desc">支持 Egern (iOS) &amp; v2rayNG (Android) | 端到端加密本地解析</div>
+                </div>
+
+                <div class="header-stats">
+                    <div class="stat-box">
+                        <span class="stat-label"><span class="pulse-dot"></span>当前在线</span>
+                        <span class="stat-num" id="onlineCount">--</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-box">
+                        <span class="stat-label">🚀 累计服务</span>
+                        <span class="stat-num" id="totalServedCount">--</span>
+                    </div>
+                </div>
+            </header>
+
+            <nav class="tabs-nav" role="tablist" aria-label="功能模块切换">
+                <button type="button" class="tab-btn active" id="tabBtn-wifi"   role="tab" aria-selected="true"  aria-controls="wifi"       data-tab="wifi">📶 代理 &amp; WiFi</button>
+                <button type="button" class="tab-btn"        id="tabBtn-quick"  role="tab" aria-selected="false" aria-controls="quick"      data-tab="quick">⚡ IP 生成</button>
+                <button type="button" class="tab-btn"        id="tabBtn-batch"  role="tab" aria-selected="false" aria-controls="batch"      data-tab="batch">📋 填写 IP 报表</button>
+                <button type="button" class="tab-btn"        id="tabBtn-guide"  role="tab" aria-selected="false" aria-controls="guide"      data-tab="guide">📖 使用教程</button>
+                <button type="button" class="tab-btn"        id="tabBtn-single" role="tab" aria-selected="false" aria-controls="single"     data-tab="single">🔍 IP 提取</button>
+                <button type="button" class="tab-btn admin-tab-btn" id="adminTabBtn" role="tab" aria-selected="false" aria-controls="adminPanel" data-tab="adminPanel">🔒 审计大屏</button>
+            </nav>
+        </div>
+
+        <div class="content-body">
+
+            <!-- 模块 1: WiFi -->
+            <section class="tab-content active" id="wifi" role="tabpanel" aria-labelledby="tabBtn-wifi">
+                <div class="wifi-section-header">
+                    <h2 class="wifi-section-title mb-0" id="wifiSectionTitle">📶 代理 &amp; WiFi</h2>
+                </div>
+                <p class="wifi-section-tip" id="wifiSectionTip">💡 点击基础网络卡片可一键下发一键配置</p>
+
+                <!-- 动态基础网络卡片容器 (自动左对齐补位) -->
+                <div class="dynamic-cards-flex" id="baseWifiContainer"></div>
+
+                <!-- 软路由分流通道 (由审计后台开关控制显示/隐藏) -->
+                <section id="softRouterSection" style="display: none;">
+                    <h3 class="wifi-section-title mt-35">软路由分流通道 <span class="soft-router-key">(全局密钥: <span id="softRouterKey"></span>)</span></h3>
+                    <div class="compact-grid-5">
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-01', 'images/wifi6.jpg')">LINE-01</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-02', 'images/wifi7.jpg')">LINE-02</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-03', 'images/wifi8.jpg')">LINE-03</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-04', 'images/wifi9.jpg')">LINE-04</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-05', 'images/wifi10.jpg')">LINE-05</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-06', 'images/wifi11.jpg')">LINE-06</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-07', 'images/wifi12.jpg')">LINE-07</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-08', 'images/wifi13.jpg')">LINE-08</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-09', 'images/wifi14.jpg')">LINE-09</button>
+                        <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-10', 'images/wifi15.jpg')">LINE-10</button>
+                    </div>
+                </section>
+
+                <h3 class="wifi-section-title mt-40">前置代理二维码（扫码一键添加）</h3>
+                <div class="proxy-grid" id="proxyGrid"></div>
+                <h3 class="wifi-section-title mt-40">公司 WiFi 二维码</h3>
+                <div class="company-grid" id="companyGrid"></div>
+            </section>
+
+            <!-- 模块 2: IP 生成 -->
+            <section class="tab-content" id="quick" role="tabpanel" aria-labelledby="tabBtn-quick">
+                <div class="split-layout">
+                    <div class="split-left">
+                        <div class="form-card">
+                            <div class="form-group">
+                                <label for="namePrefix">🏷️ 代理名称前缀 (可自定义)</label>
+                                <input type="text" id="namePrefix" value="Socks:USiOS" placeholder="自定义前缀，如：Socks:USiOS">
+                            </div>
+                            <div class="form-group">
+                                <label for="quickCode">📱 手机编码 (资产标签盘点号)</label>
+                                <input type="text" id="quickCode" inputmode="numeric" placeholder="请输入两位或三位手机数字编码，例如：257">
+                            </div>
+                            <div class="form-group">
+                                <label for="quickIp">🌐 智能提取 IP 信息 (支持空格、多重冒号及换行错乱)</label>
+                                <input type="text" id="quickIp" placeholder="粘贴凌乱的源数据，系统会自动清洗并分离格式">
+                            </div>
+                            <div class="btn-group mt-25">
+                                <button type="button" class="btn-primary" onclick="quickGenerateEgern()">🚀 生成 Egern 二维码</button>
+                                <button type="button" class="btn-green" onclick="quickGenerateV2ray()">🚀 生成 v2rayNG 二维码</button>
+                            </div>
+                        </div>
+
+                        <div class="result-box-wrap">
+                            <div class="result-header"><span>生成用于使用 Egern 的二维码</span><button type="button" class="copy-btn-small" onclick="copyToClipboard('quickEgernLink')">复制</button></div>
+                            <div class="result-content" id="quickEgernLink">点击上方生成按钮后，在此生成长链接...</div>
+                        </div>
+                        <div class="result-box-wrap mt-15">
+                            <div class="result-header"><span>生成用于使用 v2rayNG、NekoBox 的二维码</span><button type="button" class="copy-btn-small" onclick="copyToClipboard('quickV2rayLink')">复制</button></div>
+                            <div class="result-content" id="quickV2rayLink">点击上方生成按钮后，在此生成长链接...</div>
+                        </div>
+                    </div>
+                    <div class="split-right qr-centered-panel">
+                        <div class="qr-card-side">
+                            <h4>Egern 二维码 (iPhone)</h4>
+                            <div class="qr-box" id="quickEgernQr"><div class="qr-placeholder">等待生成中<br>生成后点击可全屏放大</div></div>
+                        </div>
+                        <div class="qr-card-side mt-20">
+                            <h4>v2rayNG 二维码 (Android)</h4>
+                            <div class="qr-box" id="quickV2rayQr"><div class="qr-placeholder">等待生成中<br>生成后点击可全屏放大</div></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 模块 3: 填写 IP 报表 -->
+            <section class="tab-content" id="batch" role="tabpanel" aria-labelledby="tabBtn-batch">
+                <div class="form-card">
+                    <div class="form-group">
+                        <label for="batchInput">批量灌入节点数据 (自动兼容中文冒号、空格断层等异常排版)</label>
+                        <textarea id="batchInput" rows="6" placeholder="请在此处一次性粘贴所有凌乱节点，系统将自动使用超强正则完成清洗及对齐"></textarea>
+                    </div>
+                    <div class="batch-action-bar">
+                        <div class="btn-group">
+                            <button type="button" class="btn-primary" onclick="batchGenerate()">⚡ 生成并并发测绘</button>
+                            <button type="button" class="btn-green" onclick="copyForExcel()">📋 点此复制 (Excel直贴对齐)</button>
+                            <div class="link-group ml-15">
+                                <a href="https://docs.google.com/spreadsheets/d/1BXupatu7XlxcB6xC20U36yIjrnr2CiqDXRKJPJnrgcc/edit?gid=0#gid=0" target="_blank" rel="noopener noreferrer" class="text-link">获取团队业务资产表</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="batch-options-row">
+                        <div class="input-wrapper flex-1">
+                            <span class="input-icon" aria-hidden="true">📱</span>
+                            <label class="sr-only" for="batchPhoneInput">手机编号</label>
+                            <input type="text" id="batchPhoneInput" placeholder="手机编号 (选填，自动注入)">
+                        </div>
+                        <div class="input-wrapper flex-1">
+                            <span class="input-icon" aria-hidden="true">👤</span>
+                            <label class="sr-only" for="batchNameInput">使用人姓名</label>
+                            <input type="text" id="batchNameInput" placeholder="使用人姓名 (选填，自动注入)">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-scroll">
+                    <table class="batch-table" id="batchTable">
+                        <thead>
+                            <tr>
+                                <th scope="col">手机编号</th>
+                                <th scope="col">使用人</th>
+                                <th scope="col">ip地址</th>
+                                <th scope="col">国家/地区</th>
+                                <th scope="col">州/省</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="5" class="table-empty">等待注入节点数据以进行多链路并发洗表...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 模块 4: 使用教程 -->
+            <section class="tab-content" id="guide" role="tabpanel" aria-labelledby="tabBtn-guide">
+                <div class="guide-section help-content" id="guideContentContainer"></div>
+            </section>
+
+            <!-- 模块 5: 逆向提取与高仿代理检测 -->
+            <section class="tab-content" id="single" role="tabpanel" aria-labelledby="tabBtn-single">
+                <div class="split-layout">
+                    <div class="split-left">
+                        <div class="form-card">
+                            <div class="form-group">
+                                <label for="singleLink">🔗 逆向读取 Egern 链接 / 或智能清洗异常 IP 文本</label>
+                                <textarea id="singleLink" rows="5" placeholder="粘贴 Egern json 链接，或者粘贴带空格/中文冒号的异常 IP 文本"></textarea>
+                            </div>
+                            <div class="btn-group">
+                                <button type="button" class="btn-pink" onclick="generateIPInfo()">📋 启动链路还原<br>和代理检测</button>
+                                <button type="button" class="btn-ghost" onclick="copyIPInfo()">复制明文</button>
+                                <button type="button" class="btn-ghost" onclick="clearSingleInfo()">清空</button>
+                            </div>
+                        </div>
+                        <div class="result-box-wrap">
+                            <div class="result-header"><span>提取出的明文结果流 (Output)</span></div>
+                            <div class="result-content result-highlight" id="singleIpResult">等待逆向解析...</div>
+                        </div>
+
+                        <div class="test-result-box" id="proxyTestResult" style="display: none; margin-top: 20px;"></div>
+                    </div>
+
+                    <div class="split-right qr-centered-panel">
+                        <div class="qr-card-side">
+                            <h4>对应解析基准码</h4>
+                            <div class="qr-box" id="singleQr"><div class="qr-placeholder">解析成功后镜像显示</div></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 模块 6: 审计大屏 -->
+            <section class="tab-content" id="adminPanel" role="tabpanel" aria-labelledby="adminTabBtn">
+                <div class="form-card">
+                    <h2 class="wifi-section-title admin-title">🔒 行为审计与风控大屏</h2>
+                    <p class="admin-desc">系统已激活全量数据访问权限。可查验全团队的访问特征、位置信标、业务打表记录及建议反馈。</p>
+                    <div class="btn-group">
+                        <button type="button" class="btn-primary" onclick="refreshAdminLogs()">🔄 同步云端流水</button>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h4>📈 平台出勤访问与交互频次历史趋势</h4>
+                    <div id="trafficChart" class="chart-box"></div>
+                </div>
+
+                <div id="adminControlContainer"></div>
+                <div id="cmsContainer"></div>
+
+                <div class="table-scroll">
+                    <table class="batch-table" id="adminLogTable">
+                        <thead>
+                            <tr>
+                                <th scope="col">时间标量 (Timestamp)</th>
+                                <th scope="col">操作源 (Operator/Host)</th>
+                                <th scope="col">信标定点 (Location/Gateway)</th>
+                                <th scope="col">行为分类 (Event)</th>
+                                <th scope="col">流水详情溯源 (Payload)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="5" class="table-empty">正在从 Google Sheets 通道拉取流水总线...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- 普通扫码大图弹窗 -->
+    <div class="wifi-modal" id="wifiModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="wifi-modal-content">
+            <button type="button" class="wifi-modal-close" onclick="closeWifiModal()" aria-label="关闭弹窗">×</button>
+            <div class="modal-qr-box" id="modalQrBox"></div>
+            <div class="modal-title" id="modalTitle"></div>
+        </div>
+    </div>
+
+    <!-- 💡 问号点击打开的自适应大图使用教程弹窗 -->
+    <div class="auto-modal" id="wifiGuideModal" role="dialog" aria-modal="true" aria-label="使用说明大图">
+        <div class="auto-modal-content">
+            <button type="button" class="auto-modal-close" onclick="closeWifiGuideModal()" title="关闭说明" aria-label="关闭说明">×</button>
+            <img id="wifiGuideImg" src="images/@Ads%20tutorial.jpg" loading="lazy" decoding="async" alt="使用教程大图" onerror="this.onerror=null; this.src='images/wifi1.jpg';">
+        </div>
+    </div>
+
+    <!-- 📝 卡片问号弹出的文字教程弹窗（支持 Markdown） -->
+    <div class="auto-modal" id="cardHelpModal" role="dialog" aria-modal="true" aria-label="使用说明">
+        <div class="auto-modal-content card-help-content">
+            <button type="button" class="auto-modal-close" onclick="closeCardHelp()" title="关闭说明" aria-label="关闭说明">×</button>
+            <div class="help-content modal-text-body" id="modalTextBody"></div>
+        </div>
+    </div>
+
+    <div class="feedback-modal" id="feedbackModal" role="dialog" aria-modal="true" aria-labelledby="feedbackTitle">
+        <div class="feedback-modal-content">
+            <button type="button" class="wifi-modal-close" onclick="closeFeedbackModal()" aria-label="关闭弹窗">×</button>
+            <h3 id="feedbackTitle">💡 建议与问题反馈箱</h3>
+            <div class="form-group"><input type="text" id="fbName" placeholder="怎么称呼您 / 哪一运营组 (必填)"></div>
+            <div class="form-group"><input type="text" id="fbContact" placeholder="联系方式 微信/TG/钉钉号/手机号 (选填)"></div>
+            <div class="form-group"><textarea id="fbContent" rows="4" placeholder="请详细阐述您在使用工具时遇到的 Bug、错位、或者需要迭代的新功能..."></textarea></div>
+            <button type="button" class="btn-primary btn-block" onclick="submitFeedback()">加密提交至维护后台</button>
+        </div>
+    </div>
+
+    <script src="js/markdown.js" defer></script>
+    <script src="js/content.js" defer></script>
+    <script src="guide.js" defer></script>
+    <script src="js/canvas-engine.js" defer></script>
+    <script src="js/main.js" defer></script>
+    <script src="js/admin-cms.js" defer></script>
+</body>
+</html>
