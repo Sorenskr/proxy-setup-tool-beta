@@ -1,0 +1,28 @@
+name: Proxy Probe（前置代理自动探测）
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # 每 5 分钟（UTC，高峰可能延迟几分钟，属正常）
+  workflow_dispatch:        # 允许在 Actions 页面手动 Run workflow
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest          # 必须用 GitHub 海外 runner，国内云函数连不上海外节点会全部误判
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 下载 Hysteria2 官方客户端
+        run: |
+          set -e
+          curl -fL -o hysteria https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-amd64
+          chmod +x hysteria
+          ls -lh hysteria
+      - name: 探测全部前置代理并写回后台
+        env:
+          PROXY_LIST: ${{ secrets.PROXY_LIST }}
+          PROBE_API_URL: ${{ secrets.PROBE_API_URL }}
+          PROBE_TOKEN: ${{ secrets.PROBE_TOKEN }}
+        run: node scripts/probe-proxies.mjs

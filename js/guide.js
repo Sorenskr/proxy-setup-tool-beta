@@ -14,7 +14,7 @@ const companyWifiList = [
     { name: 'JD-TEST JDTester2025!', imgPath: 'images/wifi5.jpg' }
 ];
 
-const REPORT_API_URL = "https://script.google.com/macros/s/AKfycbzgFbkbKnX8TrcX_UN-JeN9WjnF95rKFBpXemPJbS7XSYe35DgeNnYo-57znlp2WJXj/exec".trim();
+const REPORT_API_URL = "https://script.google.com/macros/s/AKfycbx-1u4836W99nFQxVkhbDKdc9uBnZEBWtI88m6PwhoTiAtkM4QdPFXmu8YMr_2SdYhvDg/exec".trim();
 
 let myTrafficChart = null; 
 window.isNightMode = localStorage.getItem('theme') === 'night';

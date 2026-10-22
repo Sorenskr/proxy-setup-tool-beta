@@ -31,6 +31,7 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <canvas id="bgCanvas" aria-hidden="true"></canvas>
+    <video id="bgVideo" class="bg-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video>
 
     <!-- 🎵 隐匿式悬浮音乐控制台 -->
     <div class="music-player-widget" role="group" aria-label="背景音乐控制台">
@@ -61,6 +62,7 @@
     <button type="button" class="feedback-btn" onclick="openFeedbackModal()" title="向组长提交系统建议">💡 建议</button>
 
     <div class="contact-float">
+        <button type="button" class="contact-item bg-sound-btn" id="bgVideoMuteBtn" onclick="toggleBgVideoSound()" title="当前静音（点击开启背景视频声音）" aria-label="切换背景视频声音">🔇</button>
         <div class="contact-item" title="钉钉">
             <img src="images/qiwei_icon.png" width="22" height="22" loading="lazy" decoding="async" alt="钉钉" onerror="imgFallback(this)">
             <span class="emoji-fallback">🏢</span>
@@ -84,6 +86,7 @@
                     <img src="images/logo.png" alt="Logo" class="main-logo" width="42" height="42" decoding="async" onerror="imgFallback(this)">
                     <span class="emoji-fallback is-lg">🌐</span>
                 </button>
+                <button type="button" class="inbox-entry-btn" id="inboxQrEntry" title="扫码传内容" onclick="openInboxQr()">📡</button>
                 <div class="header-title">
                     <h1>MatrixNode IP 二维码生成</h1>
                     <div class="header-desc">支持 Egern (iOS) &amp; v2rayNG (Android) | 端到端加密本地解析</div>
@@ -280,6 +283,10 @@
 
             <!-- 模块 6: 审计大屏 -->
             <section class="tab-content" id="adminPanel" role="tabpanel" aria-labelledby="adminTabBtn">
+                <div class="cms-shortcut-banner" onclick="openShortcutModal()" role="button" tabindex="0" title="点击查看快捷键说明">
+                    <span>⌨️ 快捷键：按 <kbd>?</kbd> 查看</span>
+                    <span class="cms-shortcut-banner-sub">Ctrl/Cmd + Alt + 1~6 跳转分区 · Ctrl/Cmd + Alt + S 保存内容</span>
+                </div>
                 <div class="form-card">
                     <h2 class="wifi-section-title admin-title">🔒 行为审计与风控大屏</h2>
                     <p class="admin-desc">系统已激活全量数据访问权限。可查验全团队的访问特征、位置信标、业务打表记录及建议反馈。</p>
@@ -289,12 +296,73 @@
                 </div>
 
                 <div class="chart-card">
-                    <h4>📈 平台出勤访问与交互频次历史趋势</h4>
+                    <div class="chart-head">
+                        <div class="chart-title-wrap">
+                            <h4>📈 平台出勤访问与交互频次历史趋势</h4>
+                            <span class="chart-caliber-note" id="chartCaliberNote">统计口径：按访问次数（仅统计 ACCESS_LOG 真实记录，趋势图始终显示真实值）</span>
+                        </div>
+                        <div class="chart-caliber-switch" role="group" aria-label="访问量统计口径切换">
+                            <button type="button" class="chart-caliber-btn active" id="caliberBtn-pv" data-caliber="pv" onclick="setChartCaliber('pv')">按访问次数</button>
+                            <button type="button" class="chart-caliber-btn" id="caliberBtn-uv" data-caliber="uv" onclick="setChartCaliber('uv')">按 IP+日期 去重</button>
+                        </div>
+                    </div>
+
+                    <div class="chart-toolbar">
+                        <div class="chart-date-group">
+                            <label for="chartDateFrom">开始日期</label>
+                            <input type="date" id="chartDateFrom" class="chart-date-input">
+                            <span class="chart-date-sep">至</span>
+                            <label for="chartDateTo">结束日期</label>
+                            <input type="date" id="chartDateTo" class="chart-date-input">
+                        </div>
+                        <div class="chart-preset-group" role="group" aria-label="快捷日期区间">
+                            <button type="button" class="chart-preset-btn" data-preset="7d" onclick="setChartDatePreset('7d')">近7天</button>
+                            <button type="button" class="chart-preset-btn" data-preset="30d" onclick="setChartDatePreset('30d')">近30天</button>
+                            <button type="button" class="chart-preset-btn active" data-preset="all" onclick="setChartDatePreset('all')">全部</button>
+                        </div>
+                        <button type="button" class="btn-primary chart-query-btn" onclick="queryTrafficRange()">🔍 查询</button>
+                    </div>
+
+                    <div class="chart-kpi-bar" id="chartKpiBar">
+                        <div class="chart-kpi-item is-access"><span class="kpi-label">🌐 页面访问 (ACCESS_LOG)</span><strong class="kpi-val" id="kpiAccessCount">0</strong></div>
+                        <div class="chart-kpi-item is-single"><span class="kpi-label">⚡ 快捷生成 (SINGLE_GEN)</span><strong class="kpi-val" id="kpiSingleGenCount">0</strong></div>
+                        <div class="chart-kpi-item is-test"><span class="kpi-label">🔍 代理测试 (PROXY_TEST)</span><strong class="kpi-val" id="kpiProxyTestCount">0</strong></div>
+                        <div class="chart-kpi-item is-feedback"><span class="kpi-label">💡 建议反馈 (FEEDBACK)</span><strong class="kpi-val" id="kpiFeedbackCount">0</strong></div>
+                    </div>
+
                     <div id="trafficChart" class="chart-box"></div>
                 </div>
 
                 <div id="adminControlContainer"></div>
                 <div id="cmsContainer"></div>
+
+                <!-- 扫码收件箱审计区块 -->
+                <div class="cms-card" id="adminInboxSection">
+                    <div class="cms-card-head">
+                        <h4>📨 扫码收件箱（房间：MatrixNode · Google 表格 MN_Inbox）</h4>
+                        <div class="cms-actions">
+                            <button type="button" class="btn-ghost" onclick="openInboxQr()">📱 打开上传二维码</button>
+                            <button type="button" class="btn-primary" onclick="if(window.refreshAdminInbox)window.refreshAdminInbox()">🔄 刷新收件箱</button>
+                        </div>
+                    </div>
+                    <div class="table-scroll" style="margin-top: 12px;">
+                        <table class="batch-table" id="adminInboxTable">
+                            <thead>
+                                <tr>
+                                    <th scope="col">时间</th>
+                                    <th scope="col">类型</th>
+                                    <th scope="col">文字</th>
+                                    <th scope="col">图片缩略图</th>
+                                    <th scope="col">OCR 文字</th>
+                                    <th scope="col">图片链接</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminInboxTbody">
+                                <tr><td colspan="6" class="table-empty">正在拉取扫码收件箱记录...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
 
                 <div class="table-scroll">
                     <table class="batch-table" id="adminLogTable">
@@ -353,11 +421,47 @@
         </div>
     </div>
 
+    <!-- ⌨️ 后台快捷键说明弹窗 -->
+    <div class="auto-modal" id="cmsShortcutModal" role="dialog" aria-modal="true" aria-labelledby="cmsShortcutTitle">
+        <div class="auto-modal-content cms-shortcut-modal-content">
+            <button type="button" class="auto-modal-close" onclick="closeShortcutModal()" title="关闭说明" aria-label="关闭说明">×</button>
+            <h3 id="cmsShortcutTitle" class="cms-shortcut-title">⌨️ 后台键盘快捷键说明</h3>
+            <div class="cms-shortcut-list">
+                <div class="cms-shortcut-row"><span>跳转到「1. 前置代理」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>1</kbd></span></div>
+                <div class="cms-shortcut-row"><span>跳转到「2. 公司WiFi」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>2</kbd></span></div>
+                <div class="cms-shortcut-row"><span>跳转到「3. 基础网络」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>3</kbd></span></div>
+                <div class="cms-shortcut-row"><span>跳转到「4. 音乐」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>4</kbd></span></div>
+                <div class="cms-shortcut-row"><span>跳转到「5. 背景」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>5</kbd></span></div>
+                <div class="cms-shortcut-row"><span>跳转到「6. 教程」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>6</kbd></span></div>
+                <div class="cms-shortcut-row"><span>保存并下发后台内容</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd></span></div>
+                <div class="cms-shortcut-row"><span>弹出 / 关闭快捷键说明面板</span><span class="cms-kbd-group"><kbd>?</kbd> / <kbd>Esc</kbd></span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="inbox-modal" id="inboxQrModal" onclick="if(event.target===this)closeInboxQr()">
+        <div class="inbox-modal-card">
+            <h3>📱 扫码传内容</h3>
+            <p class="inbox-tip">手机扫码，把文字 / 图片发送到本页右下角收件箱</p>
+            <div class="inbox-qr" id="inboxQrBox"></div>
+            <button type="button" class="inbox-close-btn" onclick="closeInboxQr()">关闭</button>
+        </div>
+    </div>
+    <div class="inbox-widget" id="inboxWidget">
+        <button type="button" class="inbox-fab" id="inboxFab" onclick="toggleInbox()">📨<span class="inbox-badge" id="inboxBadge" style="display:none">0</span></button>
+        <div class="inbox-panel" id="inboxPanel" style="display:none">
+            <div class="inbox-panel-head"><span>📨 扫码收件箱</span><button type="button" onclick="toggleInbox()">✕</button></div>
+            <div class="inbox-list" id="inboxList"></div>
+        </div>
+    </div>
+
     <script src="js/markdown.js" defer></script>
     <script src="js/content.js" defer></script>
     <script src="guide.js" defer></script>
     <script src="js/canvas-engine.js" defer></script>
     <script src="js/main.js" defer></script>
     <script src="js/admin-cms.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+    <script src="js/inbox.js" defer></script>
 </body>
 </html>

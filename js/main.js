@@ -1,9 +1,9 @@
 // ================== 1. 数据资产静态映射区 ==================
 let proxyList = [
-    { name: '李俊鑫组 美区前置', imgPath: 'images/proxy1.jpg' },
-    { name: '宋磊马宇航组 美区前置', imgPath: 'images/proxy2.jpg' },
-    { name: '慕杰组 美区前置', imgPath: 'images/proxy3.jpg' },
-    { name: '台湾前置代理', imgPath: 'images/proxy4.jpg' }
+    { id: 'proxy_1', name: '李俊鑫组 美区前置', qrMode: 'image', imgPath: 'images/proxy1.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' },
+    { id: 'proxy_2', name: '宋磊马宇航组 美区前置', qrMode: 'image', imgPath: 'images/proxy2.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' },
+    { id: 'proxy_3', name: '慕杰组 美区前置', qrMode: 'image', imgPath: 'images/proxy3.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' },
+    { id: 'proxy_4', name: '台湾前置代理', qrMode: 'image', imgPath: 'images/proxy4.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' }
 ];
 
 let companyWifiList = [
@@ -31,7 +31,7 @@ let baseWifiCards = [
     { id: 'worker', name: '@WorkerSaas', pwd: '202212888', img: 'images/wifi2.jpg', tag: '', large: false, danger: false }
 ];
 
-const REPORT_API_URL = "https://script.google.com/macros/s/AKfycbyM4o1Ah2Pguo_f4yB6_xKctMN980zX0Pko9kTZrnh3NppR8kbYtK-93FoUF7T1l-TM/exec".trim();
+const REPORT_API_URL = "https://script.google.com/macros/s/AKfycbx-1u4836W99nFQxVkhbDKdc9uBnZEBWtI88m6PwhoTiAtkM4QdPFXmu8YMr_2SdYhvDg/exec".trim();
 
 // 软路由全局密钥：由脚本注入 DOM，避免明文写死在 HTML 源码中
 const SOFT_ROUTER_KEY = 'jd66666666';
