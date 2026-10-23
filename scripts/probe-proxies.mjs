@@ -154,7 +154,109 @@ socks5:
   return base;
 }
 
+/**
+ * 从后台「1. 前置代理卡片」(content.proxyList) 的 proxyUrl 自动解析可探测节点
+ * 支持：
+ *  - Egern 链接：https://egernapp.com/proxies/new?json={"hysteria2":{...}}
+ *  - Hysteria2 链接：hysteria2://auth@host:port?sni=xxx#name
+ *  - 标准代理：socks5://user:pass@host:port 或 http://...
+ *  - 四段式：ip:port:user:pass
+ */
+function parseProxyCardToTarget(card) {
+  if (!card || typeof card !== 'object' || card.visible === false) return null;
+  const raw = String(card.proxyUrl || '').trim();
+  if (!raw) return null;
+  const id = String(card.id || card.name || '').trim();
+  const name = String(card.name || card.id || '').trim();
+
+  if (/egernapp\.com\/proxies\/new/i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      const jsonStr = u.searchParams.get('json');
+      if (jsonStr) {
+        const obj = JSON.parse(jsonStr);
+        const hy = obj && (obj.hysteria2 || obj.hy2);
+        if (hy && hy.server) {
+          return {
+            id,
+            name: name || hy.name || id,
+            type: 'hysteria2',
+            server: String(hy.server).trim(),
+            port: Number(hy.port) || 443,
+            auth: String(hy.auth || ''),
+            sni: String(hy.sni || '').trim(),
+            insecure: true
+          };
+        }
+        const s5 = obj && (obj.socks5 || obj.http);
+        if (s5 && s5.server) {
+          return {
+            id,
+            name: name || s5.name || id,
+            type: obj.http ? 'http' : 'socks5',
+            host: String(s5.server).trim(),
+            port: Number(s5.port) || 1080,
+            username: String(s5.username || ''),
+            password: String(s5.password || '')
+          };
+        }
+      }
+    } catch {}
+  }
+
+  if (/^(hysteria2|hy2):\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      return {
+        id,
+        name: name || decodeURIComponent(u.hash.replace(/^#/, '')) || id,
+        type: 'hysteria2',
+        server: u.hostname,
+        port: Number(u.port) || 443,
+        auth: decodeURIComponent(u.username || '') + (u.password ? ':' + decodeURIComponent(u.password) : ''),
+        sni: u.searchParams.get('sni') || u.searchParams.get('peer') || '',
+        insecure: true
+      };
+    } catch {}
+  }
+
+  if (/^(socks5h?|http):\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      if (u.hostname && u.port) {
+        return {
+          id,
+          name,
+          type: u.protocol.startsWith('http') ? 'http' : 'socks5',
+          host: u.hostname,
+          port: Number(u.port),
+          username: decodeURIComponent(u.username || ''),
+          password: decodeURIComponent(u.password || '')
+        };
+      }
+    } catch {}
+  }
+
+  const clean = raw.replace(/：/g, ':').trim();
+  const parts = clean.split(':');
+  if (parts.length >= 2 && /^\d+$/.test(parts[1]) && !clean.includes('://')) {
+    return {
+      id,
+      name,
+      type: 'socks5',
+      host: parts[0],
+      port: Number(parts[1]),
+      username: parts[2] || '',
+      password: parts.slice(3).join(':') || ''
+    };
+  }
+  return null;
+}
+
 async function fetchProbeTask() {
+  const sep = API_URL.includes('?') ? '&' : '?';
+  let taskData = { ok: true, probeIntervalMin: 15, lastCheckedAt: '', nodes: [], existingItems: {}, cardNodes: [] };
+
   try {
     const resp = await fetch(API_URL, {
       method: 'POST',
@@ -163,20 +265,33 @@ async function fetchProbeTask() {
     });
     const j = await resp.json();
     if (j && j.ok === true && Array.isArray(j.nodes)) {
-      return j;
+      taskData = Object.assign(taskData, j);
     }
   } catch {}
-  // 兼容回退：若 Apps Script 尚未重新部署 GET_PROBE_TASK，通过 GET ?action=probe 读取上次探测时间与间隔
+
   try {
-    const sep = API_URL.includes('?') ? '&' : '?';
     const r2 = await fetch(`${API_URL}${sep}action=probe&t=${Date.now()}`);
     const j2 = await r2.json();
-    const lastCheckedAt = (j2 && j2.probe && (j2.probe.updatedAt || j2.probe.checkedAt)) || '';
-    const probeIntervalMin = (j2 && j2.probeIntervalMin) || 15;
-    return { ok: true, probeIntervalMin, lastCheckedAt, nodes: [] };
-  } catch {
-    return { ok: true, probeIntervalMin: 15, lastCheckedAt: '', nodes: [] };
-  }
+    if (j2 && j2.probe) {
+      if (!taskData.lastCheckedAt) {
+        taskData.lastCheckedAt = j2.probe.updatedAt || j2.probe.checkedAt || '';
+      }
+      taskData.existingItems = j2.probe.items || {};
+    }
+    if (j2 && j2.probeIntervalMin) {
+      taskData.probeIntervalMin = j2.probeIntervalMin;
+    }
+  } catch {}
+
+  // 同时拉取后台 ?action=content 中的 proxyList，自动把后台新增卡片纳入探测
+  try {
+    const r3 = await fetch(`${API_URL}${sep}action=content&t=${Date.now()}`);
+    const j3 = await r3.json();
+    const list = j3 && j3.content && Array.isArray(j3.content.proxyList) ? j3.content.proxyList : [];
+    taskData.cardNodes = list.map(parseProxyCardToTarget).filter(Boolean);
+  } catch {}
+
+  return taskData;
 }
 
 async function main() {
@@ -186,21 +301,40 @@ async function main() {
   const lastMs = parseChinaTimeMs(lastCheckedAt);
   const elapsedMin = lastMs > 0 ? Math.max(0, Math.floor((Date.now() - lastMs) / 60000)) : null;
 
-  if (!FORCE_PROBE && (task.shouldRun === false || (elapsedMin !== null && elapsedMin < intervalMin))) {
+  // 合并节点来源：1. PROXY_Nodes 表  2. 后台卡片 proxyList  3. 环境变量 PROXY_LIST 回退
+  const mergedMap = new Map();
+  const addNode = (n) => {
+    if (!n || typeof n !== 'object') return;
+    const key = String(n.id || n.name || '').trim();
+    if (!key) return;
+    if (!mergedMap.has(key)) mergedMap.set(key, n);
+  };
+
+  if (Array.isArray(task.nodes)) task.nodes.forEach(addNode);
+  if (Array.isArray(task.cardNodes)) task.cardNodes.forEach(addNode);
+  if (RAW_LIST) {
+    try {
+      const parsed = JSON.parse(RAW_LIST);
+      if (Array.isArray(parsed)) parsed.forEach(addNode);
+    } catch {}
+  }
+
+  const targets = Array.from(mergedMap.values());
+  if (targets.length === 0) {
+    console.log('[SKIP] 暂无可探测的前置代理节点，本次跳过。');
+    return;
+  }
+
+  const existingItems = task.existingItems || {};
+  const hasNewUnprobed = targets.some(t => !existingItems[t.id] && !existingItems[t.name]);
+
+  if (!FORCE_PROBE && !hasNewUnprobed && (task.shouldRun === false || (elapsedMin !== null && elapsedMin < intervalMin))) {
     console.log(`[SKIP] 设定探测间隔 ${intervalMin} 分钟，距上次探测（${lastCheckedAt || '无'}）已过 ${elapsedMin ?? 0} 分钟，未满间隔，本次跳过。`);
     return;
   }
 
-  let targets = Array.isArray(task.nodes) ? task.nodes : [];
-  if (targets.length === 0 && RAW_LIST) {
-    try {
-      const parsed = JSON.parse(RAW_LIST);
-      if (Array.isArray(parsed)) targets = parsed;
-    } catch {}
-  }
-  if (targets.length === 0) {
-    console.log('[SKIP] PROXY_Nodes 与回退配置中暂无已上线节点，本次跳过。');
-    return;
+  if (hasNewUnprobed) {
+    console.log('检测到后台新增尚未探测的代理卡片，立即执行首次探测…');
   }
 
   console.log(`开始探测：共 ${targets.length} 个已上线节点（间隔设定：${intervalMin} 分钟）`);
