@@ -2,13 +2,19 @@ name: Proxy Probe（前置代理自动探测）
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # 每 5 分钟触发一次（由脚本读取 Apps Script 配置的 probeIntervalMin 决定是否到达探测间隔）
+    - cron: '*/5 * * * *'   # 定时唤醒接力
   workflow_dispatch:        # 允许在 Actions 页面手动 Run workflow
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: proxy-probe-runner
+  cancel-in-progress: true
 
 jobs:
   probe:
     runs-on: ubuntu-latest          # 使用 GitHub 海外 runner，避免国内云函数误判
-    timeout-minutes: 8
+    timeout-minutes: 350            # 单次长驻守护 5.5 小时，彻底规避 GitHub 免费 cron 延迟几小时的问题
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,10 +26,11 @@ jobs:
           curl -fL -o hysteria https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-amd64
           chmod +x hysteria
           ls -lh hysteria
-      - name: 从后台拉取已上线前置节点并按设定间隔探测
+      - name: 长驻巡检已上线前置节点并按设定间隔探测
         env:
           PROBE_API_URL: ${{ secrets.PROBE_API_URL }}
           PROBE_TOKEN: ${{ secrets.PROBE_TOKEN }}
           PROXY_LIST: ${{ secrets.PROXY_LIST }}
-          FORCE_PROBE: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+          FORCE_PROBE: ${{ github.event_name != 'schedule' && 'true' || 'false' }}
+          KEEP_ALIVE_MINUTES: '330'
         run: node scripts/probe-proxies.mjs

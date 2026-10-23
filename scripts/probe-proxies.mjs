@@ -413,7 +413,7 @@ function applyAntiJitter(rawResult, prevRecord) {
   return rawResult;
 }
 
-async function main() {
+async function runSingleCycle(forceThisCycle) {
   const task = await fetchProbeTask();
   const intervalMin = Math.max(1, parseInt(task.probeIntervalMin || 15, 10) || 15);
   const lastCheckedAt = String(task.lastCheckedAt || '').trim();
@@ -440,18 +440,17 @@ async function main() {
   const targets = Array.from(mergedMap.values());
   if (targets.length === 0) {
     console.log('[SKIP] 暂无可探测的前置代理节点，本次跳过。');
-    return;
+    return { ran: false, intervalMin };
   }
 
   const existingItems = task.existingItems || {};
   const hasNewUnprobed = targets.some(t => !existingItems[t.id] && !existingItems[t.name]);
 
-  if (!FORCE_PROBE && !hasNewUnprobed && (task.shouldRun === false || (elapsedMin !== null && elapsedMin < intervalMin))) {
-    console.log(`[SKIP] 设定探测间隔 ${intervalMin} 分钟，距上次探测（${lastCheckedAt || '无'}）已过 ${elapsedMin ?? 0} 分钟，未满间隔，本次跳过。`);
-    return;
+  if (!forceThisCycle && !hasNewUnprobed && (task.shouldRun === false || (elapsedMin !== null && elapsedMin < intervalMin))) {
+    return { ran: false, intervalMin, elapsedMin };
   }
 
-  console.log(`开始真实业务双目标探测 (Google 204 + Instagram)：共 ${targets.length} 个节点`);
+  console.log(`[${nowCST()}] 开始真实业务双目标探测 (Google 204 + Instagram)：共 ${targets.length} 个节点（间隔设定：${intervalMin} 分钟）`);
   const checkedAt = nowCST();
   const results = [];
 
@@ -485,7 +484,30 @@ async function main() {
   if (!body || body.ok !== true) {
     throw new Error('写回后台失败：' + ((body && body.error) || '未知响应'));
   }
-  console.log('结果已写回 Google 后台');
+  console.log(`[${checkedAt}] 结果已写回 Google 后台`);
+  return { ran: true, intervalMin };
+}
+
+async function main() {
+  const keepAliveMin = Math.max(0, parseInt(process.env.KEEP_ALIVE_MINUTES || '0', 10) || 0);
+  const startedMs = Date.now();
+  const deadlineMs = startedMs + keepAliveMin * 60 * 1000;
+
+  // 首次执行
+  await runSingleCycle(FORCE_PROBE);
+
+  if (keepAliveMin <= 0) return;
+
+  console.log(`已开启长驻守护模式（持续 ${keepAliveMin} 分钟，规避 GitHub 免费定时任务延迟，精准按后台间隔每分钟巡检）…`);
+  while (Date.now() + 65000 < deadlineMs) {
+    await sleep(60 * 1000);
+    try {
+      await runSingleCycle(false);
+    } catch (e) {
+      console.error('单次巡检异常（将在下分钟继续）：', e && e.message ? e.message : String(e));
+    }
+  }
+  console.log('本轮长驻守护周期结束，等待下一轮调度接力。');
 }
 
 main().catch((e) => {
