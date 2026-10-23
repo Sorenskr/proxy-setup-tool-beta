@@ -171,8 +171,8 @@ function parseProxyCardToTarget(card) {
 
   if (/egernapp\.com\/proxies\/new/i.test(raw)) {
     try {
-      const u = new URL(raw);
-      const jsonStr = u.searchParams.get('json');
+      const m = /[?&]json=([^&#]+)/i.exec(raw);
+      const jsonStr = m ? decodeURIComponent(m[1]) : '';
       if (jsonStr) {
         const obj = JSON.parse(jsonStr);
         const hy = obj && (obj.hysteria2 || obj.hy2);
@@ -311,13 +311,13 @@ async function main() {
   };
 
   if (Array.isArray(task.nodes)) task.nodes.forEach(addNode);
-  if (Array.isArray(task.cardNodes)) task.cardNodes.forEach(addNode);
   if (RAW_LIST) {
     try {
       const parsed = JSON.parse(RAW_LIST);
       if (Array.isArray(parsed)) parsed.forEach(addNode);
     } catch {}
   }
+  if (Array.isArray(task.cardNodes)) task.cardNodes.forEach(addNode);
 
   const targets = Array.from(mergedMap.values());
   if (targets.length === 0) {
