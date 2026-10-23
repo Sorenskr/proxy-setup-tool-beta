@@ -557,6 +557,7 @@
     // DOMContentLoaded 时启动（保证 main.js 的全局变量已就绪），并每 60 秒同步探测状态与分钟计数
     window.siteContentReady = new Promise(resolve => {
         document.addEventListener('DOMContentLoaded', () => {
+            if (window.__IS_INBOX_MOBILE_PAGE__) { resolve(); return; }
             load().then(() => {
                 window.fetchProbeState();
                 setInterval(() => { window.fetchProbeState(); }, 60 * 1000);

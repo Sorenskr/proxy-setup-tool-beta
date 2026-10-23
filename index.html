@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        if (/[?&]inboxpage=1\b/.test(location.search)) {
+            window.__IS_INBOX_MOBILE_PAGE__ = true;
+            document.documentElement.classList.add('is-mobile-inbox-page');
+            var vp = document.querySelector('meta[name="viewport"]');
+            if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
+        }
+    </script>
     <meta name="description" content="MatrixNode IP 二维码生成：支持 Egern (iOS) 与 v2rayNG (Android) 的节点分发、台账打表与逆向提取，全程本地解析。">
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#8ec5fc" media="(prefers-color-scheme: light)">
@@ -63,8 +71,7 @@
 
     <div class="contact-float">
         <button type="button" class="contact-item bg-sound-btn" id="bgVideoMuteBtn" onclick="toggleBgVideoSound()" title="当前静音（点击开启背景视频声音）" aria-label="切换背景视频声音">🔇</button>
-        <button type="button" class="contact-item bg-sound-btn" id="inboxQrEntry" onclick="openInboxQr()" title="手机扫码传文字/图片" aria-label="扫码传内容">📱</button>
-        <button type="button" class="contact-item bg-sound-btn" id="inboxFab" onclick="toggleInbox()" title="打开扫码收件箱" aria-label="打开扫码收件箱">📨<span class="inbox-badge" id="inboxBadge" style="display:none">0</span></button>
+        <button type="button" class="contact-item bg-sound-btn" id="inboxFab" onclick="toggleInbox()" title="打开扫码收件箱（发文字/发图片/手机扫码）" aria-label="打开扫码收件箱">📨<span class="inbox-badge" id="inboxBadge" style="display:none">0</span></button>
         <div class="contact-item" title="钉钉">
             <img src="images/qiwei_icon.png" width="22" height="22" loading="lazy" decoding="async" alt="钉钉" onerror="imgFallback(this)">
             <span class="emoji-fallback">🏢</span>
@@ -448,6 +455,15 @@
             <button type="button" class="inbox-close-btn" onclick="closeInboxQr()">关闭</button>
         </div>
     </div>
+    <div class="inbox-modal" id="inboxImgPreviewModal" onclick="if(event.target===this)closeInboxImgModal()">
+        <div class="inbox-modal-card inbox-img-modal-card">
+            <img id="inboxImgPreviewTarget" src="" alt="大图预览" referrerpolicy="no-referrer">
+            <div style="display:flex;justify-content:center;gap:10px;margin-top:12px;">
+                <a id="inboxImgOriginLink" href="#" target="_blank" rel="noopener noreferrer" class="inbox-close-btn" style="margin-top:0;text-decoration:none;background:#1f6feb;">查看原图</a>
+                <button type="button" class="inbox-close-btn" style="margin-top:0;" onclick="closeInboxImgModal()">关闭</button>
+            </div>
+        </div>
+    </div>
     <div class="inbox-widget" id="inboxWidget">
         <div class="inbox-panel" id="inboxPanel" style="display:none">
             <div class="inbox-panel-head">
@@ -458,14 +474,20 @@
                 </div>
             </div>
             <div class="inbox-composer">
-                <textarea id="inboxDirectText" class="inbox-composer-input" rows="2" placeholder="在此直接输入文字，或点击下方选择图片发送…"></textarea>
-                <div class="inbox-composer-bar">
-                    <label class="inbox-composer-file">📷 选图/拍照<input type="file" id="inboxDirectFile" accept="image/*" style="display:none" onchange="onInboxDirectFileChange(this)"></label>
+                <textarea id="inboxDirectText" class="inbox-composer-input" rows="2" placeholder="输入文字内容，可同时附上或直接粘贴图片一起发送…"></textarea>
+                <div id="inboxDirectPreviewWrap" class="inbox-attach-preview" style="display:none">
+                    <img id="inboxDirectPreviewImg" src="" alt="预览">
                     <span id="inboxDirectFileName" class="inbox-composer-filename"></span>
+                    <button type="button" class="inbox-attach-clear" onclick="clearInboxDirectFile()" title="移除图片">✕</button>
+                </div>
+                <div class="inbox-composer-bar">
+                    <label class="inbox-composer-file" title="添加图片附件">📎 添加图片<input type="file" id="inboxDirectFile" accept="image/*" style="display:none" onchange="onInboxDirectFileChange(this)"></label>
+                    <span id="inboxDirectStatus" class="inbox-composer-status"></span>
                     <button type="button" class="inbox-composer-send" id="inboxDirectSendBtn" onclick="submitInboxDirect()">发送</button>
                 </div>
             </div>
             <div class="inbox-list" id="inboxList"></div>
+            <div class="inbox-subtle-foot"><a href="https://drop.lol" target="_blank" rel="noopener noreferrer" class="inbox-secret-link">drop.lol</a></div>
         </div>
     </div>
 

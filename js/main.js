@@ -73,6 +73,7 @@ function parseProxyString(raw) {
 
 // ================== 2. 系统进程初始化 ==================
 document.addEventListener('DOMContentLoaded', () => {
+    if (window.__IS_INBOX_MOBILE_PAGE__) return;
     if (typeof window.resizeCanvas === 'function') window.resizeCanvas();
     window.addEventListener('resize', () => { if (typeof window.resizeCanvas === 'function') window.resizeCanvas(); });
 

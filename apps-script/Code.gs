@@ -718,11 +718,19 @@ function handleDelete_(fileId) {
 }
 
 function mediaUrl_(id, kind) {
-  // 图片用 export=view（浏览器可直接 <img> 显示，跟随 302 跳转）
+  // 图片直接使用 googleusercontent 直链（支持 <img> 直接渲染与 CORS 跨域 OCR，无 303 CORP 拦截）
   // 音频/视频用 export=download（小文件可直接 <audio>/<video> 播放）
   return (kind === 'audio' || kind === 'video')
     ? 'https://drive.google.com/uc?export=download&id=' + id
-    : 'https://drive.google.com/uc?export=view&id=' + id;
+    : 'https://lh3.googleusercontent.com/d/' + id;
+}
+
+function normalizeDriveImgUrl_(url) {
+  if (!url) return '';
+  var s = String(url).trim();
+  var m = /[?&]id=([a-zA-Z0-9_-]{10,})/.exec(s) || /\/file\/d\/([a-zA-Z0-9_-]{10,})/.exec(s);
+  if (m && m[1]) return 'https://lh3.googleusercontent.com/d/' + m[1];
+  return s;
 }
 
 /* ====================== 扫码收件箱（手机上传） ====================== */
@@ -730,19 +738,23 @@ function mediaUrl_(id, kind) {
 function handleInboxSubmit(data) {
   var sh = getSheet_(INBOX_SHEET_NAME, INBOX_HEADERS);
   var id = 'm' + new Date().getTime() + Math.floor(Math.random() * 1000);
-  var type = data.type === 'image' ? 'image' : 'text';
+  var hasImg = Boolean(data.base64);
+  var type = hasImg ? 'image' : 'text';
   var imgUrl = '', imgName = '';
-  if (type === 'image' && data.base64) {
+  if (hasImg) {
     var f = handleUpload_({
       base64: data.base64,
       mimeType: data.mimeType || 'image/jpeg',
       fileName: data.fileName || ('inbox_' + id + '.jpg'),
       kind: 'image'
     });
-    imgUrl = f.url; imgName = f.name;
+    imgUrl = f.url;
+    imgName = f.name;
   }
-  sh.appendRow([id, nowStr(), data.room, type, data.text || '', imgUrl, imgName, '', data.ua || '']);
-  return { id: id, type: type, time: nowStr() };
+  var now = nowStr();
+  var textVal = data.text ? String(data.text) : '';
+  sh.appendRow([id, now, data.room, type, textVal, imgUrl, imgName, '', data.ua || '']);
+  return { id: id, type: type, time: now, text: textVal, imgUrl: imgUrl, imgName: imgName };
 }
 
 function readInbox(room) {
@@ -755,7 +767,16 @@ function readInbox(room) {
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     if (room && r[2] !== room) continue;
-    list.push({ id: r[0], time: r[1], room: r[2], type: r[3], text: r[4], imgUrl: r[5], imgName: r[6], ocrText: r[7] });
+    list.push({
+      id: r[0],
+      time: formatCellTime_(r[1]),
+      room: r[2],
+      type: r[3],
+      text: r[4] !== undefined && r[4] !== null ? String(r[4]) : '',
+      imgUrl: normalizeDriveImgUrl_(r[5]),
+      imgName: r[6],
+      ocrText: r[7] !== undefined && r[7] !== null ? String(r[7]) : ''
+    });
   }
   return list.reverse(); // 最新在前
 }
@@ -778,25 +799,26 @@ function getInboxPageHtml(room) {
   var BASE_JSON = JSON.stringify(serviceUrl || 'https://script.google.com/macros/s/AKfycbx-1u4836W99nFQxVkhbDKdc9uBnZEBWtI88m6PwhoTiAtkM4QdPFXmu8YMr_2SdYhvDg/exec');
   var h = [];
   h.push('<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">');
-  h.push('<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">');
+  h.push('<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">');
   h.push('<title>内容上传</title>');
-  h.push('<style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}.wrap{max-width:560px;margin:0 auto}h2{margin:8px 0 4px}.sub{color:#8b949e;font-size:14px;margin:0 0 18px}textarea{width:100%;min-height:140px;background:#161b22;border:1px solid #30363d;border-radius:12px;color:#e6edf3;padding:14px;font-size:16px;resize:vertical}.file{display:block;margin:14px 0;padding:16px;border:1px dashed #388bfd;border-radius:12px;color:#58a6ff;text-align:center;background:#0d1a2e}#img{display:none}#preview{font-size:13px;color:#8b949e;margin:6px 0}button{width:100%;margin-top:14px;padding:15px;border:0;border-radius:12px;background:#238636;color:#fff;font-size:17px;font-weight:700}button:disabled{opacity:.6}.msg{margin-top:14px;font-size:14px;min-height:20px}.msg.ok{color:#3fb950}.msg.err{color:#f85149}</style>');
+  h.push('<style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;min-height:100dvh;display:flex;flex-direction:column;justify-content:space-between;background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px 16px 12px}.wrap{width:100%;max-width:520px;margin:0 auto}h2{margin:8px 0 4px;font-size:20px}.sub{color:#8b949e;font-size:13.5px;margin:0 0 16px}.card{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:12px}textarea{width:100%;min-height:130px;background:transparent;border:0;color:#e6edf3;padding:4px 2px;font-size:16px;resize:vertical;outline:none;font-family:inherit}.bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #21262d}.file{display:inline-flex;align-items:center;gap:6px;padding:10px 14px;border:1px dashed #388bfd;border-radius:10px;color:#58a6ff;background:#0d1a2e;font-size:14px;font-weight:600;cursor:pointer}#img{display:none}#preview{font-size:12.5px;color:#8b949e;margin-top:8px}button{flex:1;max-width:180px;padding:11px 18px;border:0;border-radius:10px;background:#238636;color:#fff;font-size:15.5px;font-weight:700;cursor:pointer}button:disabled{opacity:.6}.msg{margin-top:14px;font-size:14px;min-height:20px;font-weight:600}.msg.ok{color:#3fb950}.msg.err{color:#f85149}.foot{width:100%;max-width:520px;margin:24px auto 0;text-align:right}.foot a{font-size:10px;color:#21262d;opacity:.22;text-decoration:none}</style>');
   h.push('</head><body><div class="wrap">');
-  h.push('<h2>📡 内容上传</h2><p class="sub">发送文字或图片，主站右下角收件箱会自动收到</p>');
-  h.push('<textarea id="txt" placeholder="输入文字内容…"></textarea>');
-  h.push('<label class="file">📷 选择 / 拍摄图片<input type="file" id="img" accept="image/*" capture="environment"></label>');
+  h.push('<h2>📡 扫码传内容</h2><p class="sub">文字与图片可在下方同一窗口直接发送（支持纯文字、纯图片或图文一起发）</p>');
+  h.push('<div class="card"><textarea id="txt" placeholder="在此输入文字内容（也可添加下方图片一起发送）…"></textarea>');
   h.push('<div id="preview"></div>');
-  h.push('<button id="btn" type="button">发送</button>');
+  h.push('<div class="bar"><label class="file">📎 添加图片<input type="file" id="img" accept="image/*"></label>');
+  h.push('<button id="btn" type="button">🚀 发送</button></div></div>');
   h.push('<div id="msg" class="msg"></div>');
   h.push('</div>');
+  h.push('<div class="foot"><a href="https://drop.lol" target="_blank" rel="noopener noreferrer">drop.lol</a></div>');
   h.push('<scr' + 'ipt>');
   h.push('var ROOM=' + ROOM + ';');
   h.push('var BASE=' + BASE_JSON + ';');
   h.push('function $(id){return document.getElementById(id);}');
   h.push('function setMsg(t,ok){var m=$("msg");m.textContent=t;m.className="msg "+(ok?"ok":"err");}');
-  h.push('function compress(file){return new Promise(function(res){var img=new Image();img.onload=function(){var max=1280,w=img.width,h=img.height;if(w>max||h>max){if(w>=h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}var c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);res(c.toDataURL("image/jpeg",0.82));};img.src=URL.createObjectURL(file);});}');
-  h.push('$("img").onchange=function(){var f=this.files[0];if(f){$("preview").textContent="已选："+f.name+"（约"+Math.round(f.size/1024)+"KB）";}};');
-  h.push('$("btn").onclick=async function(){var text=$("txt").value.trim();var file=$("img").files[0];if(!text&&!file){setMsg("请输入文字或选择图片",false);return;}var body={action:"INBOX_SUBMIT",room:ROOM,ua:navigator.userAgent,text:text};if(file){setMsg("正在压缩图片…");var d=await compress(file);body.type="image";body.base64=d.split(",")[1];body.mimeType="image/jpeg";body.fileName="inbox.jpg";}else{body.type="text";}setMsg("发送中…");if(typeof google!=="undefined"&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){setMsg("✅ 已发送",true);$("txt").value="";$("img").value="";$("preview").textContent="";}).withFailureHandler(function(err){setMsg("发送失败："+(err&&err.message||err),false);}).handleInboxSubmit(body);return;}try{var r=await fetch(BASE,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(body)});var j=await r.json();if(j.ok){setMsg("✅ 已发送",true);$("txt").value="";$("img").value="";$("preview").textContent="";}else{setMsg("失败："+(j.error||""),false);}}catch(e){setMsg("发送失败："+e.message,false);}};');
+  h.push('function compress(file){return new Promise(function(res){var img=new Image();img.onload=function(){var max=1800,w=img.width,h=img.height;if(w>max||h>max){if(w>=h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}var c=document.createElement("canvas");c.width=w;c.height=h;var ctx=c.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";ctx.drawImage(img,0,0,w,h);res(c.toDataURL("image/jpeg",0.90));};img.src=URL.createObjectURL(file);});}');
+  h.push('$("img").onchange=function(){var f=this.files[0];$("preview").textContent=f?("已选图片："+f.name+"（约"+Math.round(f.size/1024)+"KB）"):"";};');
+  h.push('$("btn").onclick=async function(){var text=$("txt").value.trim();var file=$("img").files[0];if(!text&&!file){setMsg("请输入文字或添加图片",false);return;}$("btn").disabled=true;var body={action:"INBOX_SUBMIT",room:ROOM,ua:navigator.userAgent,text:text};if(file){setMsg("正在高清处理图片…",true);var d=await compress(file);body.type="image";body.base64=d.split(",")[1];body.mimeType="image/jpeg";body.fileName="inbox.jpg";}else{body.type="text";}setMsg("发送中…",true);if(typeof google!=="undefined"&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){$("btn").disabled=false;setMsg("✅ 已发送",true);$("txt").value="";$("img").value="";$("preview").textContent="";}).withFailureHandler(function(){$("btn").disabled=false;setMsg("网络不可达，请确认已挂代理后重试",false);}).handleInboxSubmit(body);return;}try{var r=await fetch(BASE,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(body)});var j=await r.json();if(j.ok){setMsg("✅ 已发送",true);$("txt").value="";$("img").value="";$("preview").textContent="";}else{setMsg("失败："+(j.error||""),false);}}catch(e){setMsg("网络不可达，请确认已挂代理后重试",false);}finally{$("btn").disabled=false;}};');
   h.push('</scr' + 'ipt>');
   h.push('</body></html>');
   return h.join('');
