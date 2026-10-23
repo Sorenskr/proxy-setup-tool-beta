@@ -16,6 +16,7 @@ const execFileP = promisify(execFile);
 
 const API_URL = (process.env.PROBE_API_URL || '').trim();
 const TOKEN = (process.env.PROBE_TOKEN || '').trim();
+const RAW_LIST = (process.env.PROXY_LIST || '').trim();
 const FORCE_PROBE = String(process.env.FORCE_PROBE || '').toLowerCase() === 'true';
 const HY_BIN = process.env.HYSTERIA_BIN || './hysteria';
 const BASE_PORT = 11000;
@@ -154,16 +155,28 @@ socks5:
 }
 
 async function fetchProbeTask() {
-  const resp = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'GET_PROBE_TASK', token: TOKEN, force: FORCE_PROBE })
-  });
-  const j = await resp.json();
-  if (!j || j.ok !== true) {
-    throw new Error('拉取探测任务失败：' + ((j && j.error) || '未知错误'));
+  try {
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'GET_PROBE_TASK', token: TOKEN, force: FORCE_PROBE })
+    });
+    const j = await resp.json();
+    if (j && j.ok === true && Array.isArray(j.nodes)) {
+      return j;
+    }
+  } catch {}
+  // 兼容回退：若 Apps Script 尚未重新部署 GET_PROBE_TASK，通过 GET ?action=probe 读取上次探测时间与间隔
+  try {
+    const sep = API_URL.includes('?') ? '&' : '?';
+    const r2 = await fetch(`${API_URL}${sep}action=probe&t=${Date.now()}`);
+    const j2 = await r2.json();
+    const lastCheckedAt = (j2 && j2.probe && (j2.probe.updatedAt || j2.probe.checkedAt)) || '';
+    const probeIntervalMin = (j2 && j2.probeIntervalMin) || 15;
+    return { ok: true, probeIntervalMin, lastCheckedAt, nodes: [] };
+  } catch {
+    return { ok: true, probeIntervalMin: 15, lastCheckedAt: '', nodes: [] };
   }
-  return j;
 }
 
 async function main() {
@@ -178,9 +191,15 @@ async function main() {
     return;
   }
 
-  const targets = Array.isArray(task.nodes) ? task.nodes : [];
+  let targets = Array.isArray(task.nodes) ? task.nodes : [];
+  if (targets.length === 0 && RAW_LIST) {
+    try {
+      const parsed = JSON.parse(RAW_LIST);
+      if (Array.isArray(parsed)) targets = parsed;
+    } catch {}
+  }
   if (targets.length === 0) {
-    console.log('[SKIP] PROXY_Nodes 中暂无已上线节点，本次跳过。');
+    console.log('[SKIP] PROXY_Nodes 与回退配置中暂无已上线节点，本次跳过。');
     return;
   }
 

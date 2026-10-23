@@ -24,5 +24,6 @@ jobs:
         env:
           PROBE_API_URL: ${{ secrets.PROBE_API_URL }}
           PROBE_TOKEN: ${{ secrets.PROBE_TOKEN }}
+          PROXY_LIST: ${{ secrets.PROXY_LIST }}
           FORCE_PROBE: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: node scripts/probe-proxies.mjs

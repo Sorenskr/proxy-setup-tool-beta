@@ -437,7 +437,7 @@
         return out;
     }
 
-    /** 将检测时间转为“x 分钟前检测” */
+    /** 将检测时间转为“x 分钟前检测”（按后台配置的 probeIntervalMin 周期展示，默认 15 分钟） */
     window.formatProbeCheckedAgo = function (timeStr) {
         if (!timeStr) return '';
         const s = String(timeStr).trim();
@@ -452,7 +452,15 @@
             ms = Date.parse(s);
         }
         if (isNaN(ms)) return s + ' 检测';
-        const diffMin = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+        let intervalMin = 15;
+        try {
+            const saved = parseInt(localStorage.getItem('cfgProbeIntervalMin') || '15', 10);
+            if (saved >= 1 && saved <= 1440) intervalMin = saved;
+        } catch (e) {}
+        let diffMin = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+        if (diffMin >= intervalMin) {
+            diffMin = diffMin % intervalMin;
+        }
         return `${diffMin} 分钟前检测`;
     };
 
@@ -522,6 +530,9 @@
         return fetch(url, { cache: 'no-store' })
             .then(r => r.json())
             .then(j => {
+                if (j && j.probeIntervalMin) {
+                    try { localStorage.setItem('cfgProbeIntervalMin', String(j.probeIntervalMin)); } catch (e) {}
+                }
                 if (j && j.ok && j.probe && typeof j.probe === 'object') {
                     const normalized = normalizeProbePayload(j.probe);
                     if (Object.keys(normalized.items).length > 0 || normalized.updatedAt) {
@@ -543,12 +554,12 @@
             });
     };
 
-    // DOMContentLoaded 时启动（保证 main.js 的全局变量已就绪），并开启 15 分钟自动探测结果轮询
+    // DOMContentLoaded 时启动（保证 main.js 的全局变量已就绪），并每 60 秒同步探测状态与分钟计数
     window.siteContentReady = new Promise(resolve => {
         document.addEventListener('DOMContentLoaded', () => {
             load().then(() => {
                 window.fetchProbeState();
-                setInterval(() => { window.fetchProbeState(); }, 15 * 60 * 1000);
+                setInterval(() => { window.fetchProbeState(); }, 60 * 1000);
                 resolve();
             });
         });
