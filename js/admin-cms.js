@@ -80,8 +80,30 @@ function buildProxyMetaHtml(item, st) {
     `;
 }
 
+const dismissedProxyMasks = new Set();
+
 /**
- * 点击前置代理卡片：仅在 status === 'up'（绿色可用）时允许点击放大二维码
+ * 点击遮罩层：一键移除当前卡片的不可用毛玻璃遮罩，恢复查看/放大与复制
+ */
+window.dismissProxyMask = function (idx, event) {
+    if (event && typeof event.stopPropagation === 'function') {
+        event.stopPropagation();
+    }
+    dismissedProxyMasks.add(Number(idx));
+    const cardEl = document.querySelector(`#proxyGrid .proxy-card[data-proxy-idx="${idx}"]`);
+    if (cardEl) {
+        cardEl.classList.remove('is-unavailable');
+        cardEl.classList.add('is-available');
+        const maskEl = cardEl.querySelector('.proxy-unavail-mask');
+        if (maskEl) maskEl.style.display = 'none';
+        const copyBtn = cardEl.querySelector('.proxy-copy-btn');
+        if (copyBtn) copyBtn.style.display = '';
+    }
+    if (typeof showToast === 'function') showToast('🔓 已移除遮罩，可正常扫码或点击放大');
+};
+
+/**
+ * 点击前置代理卡片：若当前被遮罩盖住，点击一下直接移除遮罩；已移除遮罩或可用状态时点击放大二维码
  */
 window.handleProxyCardClick = function (idx) {
     const list = typeof proxyList !== 'undefined' && Array.isArray(proxyList) ? proxyList : [];
@@ -89,8 +111,11 @@ window.handleProxyCardClick = function (idx) {
     if (!item) return;
     const st = typeof window.getProxyStatus === 'function'
         ? window.getProxyStatus(item)
-        : { status: 'unknown' };
-    if (st.status !== 'up') return;
+        : { status: 'up' };
+    if (st.status === 'down' && !dismissedProxyMasks.has(Number(idx))) {
+        window.dismissProxyMask(idx);
+        return;
+    }
 
     if (item.qrMode === 'link' && item.proxyUrl) {
         const qrImg = document.querySelector(`#proxyGrid .proxy-card[data-proxy-idx="${idx}"] .qr-img`);
@@ -161,8 +186,8 @@ window.updateProxyCardsInPlace = function () {
         if (!item) return;
         const st = typeof window.getProxyStatus === 'function'
             ? window.getProxyStatus(item)
-            : { status: 'unknown', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '暂未检测' };
-        const isUp = st.status === 'up';
+            : { status: 'up', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '暂未检测' };
+        const isUp = st.status !== 'down' || dismissedProxyMasks.has(idx);
 
         cardEl.classList.toggle('is-available', isUp);
         cardEl.classList.toggle('is-unavailable', !isUp);
@@ -192,7 +217,7 @@ window.updateProxyCardsInPlace = function () {
 
 /**
  * 覆盖前端静态卡片渲染：过滤掉 visible === false 的前置代理与公司 WiFi 卡片
- * 前置代理卡片支持 qrMode=image|link、呼吸状态灯、可用时右上角复制按钮、副文案及不可用毛玻璃遮罩
+ * 前置代理卡片支持 qrMode=image|link、呼吸状态灯、可用时右上角复制按钮、副文案及不可用毛玻璃遮罩（点击遮罩可移除）
  */
 window.renderStaticCards = function () {
     const proxyGrid = document.getElementById('proxyGrid');
@@ -207,8 +232,8 @@ window.renderStaticCards = function () {
 
         const st = typeof window.getProxyStatus === 'function'
             ? window.getProxyStatus(item)
-            : { status: 'unknown', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '暂未检测' };
-        const isUp = st.status === 'up';
+            : { status: 'up', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '暂未检测' };
+        const isUp = st.status !== 'down' || dismissedProxyMasks.has(idx);
         const isLinkMode = item.qrMode === 'link';
         const initImgSrc = isLinkMode ? '' : esc(item.imgPath || '');
 
@@ -230,8 +255,8 @@ window.renderStaticCards = function () {
             <div class="proxy-meta">
                 ${buildProxyMetaHtml(item, st)}
             </div>
-            <div class="proxy-unavail-mask" style="${isUp ? 'display:none;' : ''}">
-                <div class="proxy-unavail-text">暂时无法使用，请联系负责人</div>
+            <div class="proxy-unavail-mask" style="${isUp ? 'display:none;' : ''}" onclick="dismissProxyMask(${idx}, event)" title="点击此处移除遮罩查看二维码">
+                <div class="proxy-unavail-text">暂时无法使用，请联系负责人<div style="font-size:11px;font-weight:400;opacity:0.82;margin-top:4px;">（点击可移除遮罩查看二维码）</div></div>
             </div>
         `;
         proxyGrid.appendChild(cardEl);
@@ -641,6 +666,7 @@ window.cmsSetProxyStatusOverride = function (index, mode) {
     const item = (cmsState && cmsState.proxyList || [])[index];
     if (!item) return;
     cmsDirty = true;
+    dismissedProxyMasks.delete(Number(index));
     item.statusOverride = (mode === 'up' || mode === 'down') ? mode : 'auto';
     if (item.statusOverride === 'down' && !item.manualDownAt) {
         item.manualDownAt = cmsNowChinaStr();
@@ -653,6 +679,7 @@ window.cmsQuickProxyStatus = function (index, targetStatus) {
     const item = (cmsState && cmsState.proxyList || [])[index];
     if (!item) return;
     cmsDirty = true;
+    dismissedProxyMasks.delete(Number(index));
     if (targetStatus === 'down') {
         item.statusOverride = 'down';
         item.manualDownAt = cmsNowChinaStr();

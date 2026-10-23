@@ -63,6 +63,8 @@
 
     <div class="contact-float">
         <button type="button" class="contact-item bg-sound-btn" id="bgVideoMuteBtn" onclick="toggleBgVideoSound()" title="当前静音（点击开启背景视频声音）" aria-label="切换背景视频声音">🔇</button>
+        <button type="button" class="contact-item bg-sound-btn" id="inboxQrEntry" onclick="openInboxQr()" title="手机扫码传文字/图片" aria-label="扫码传内容">📱</button>
+        <button type="button" class="contact-item bg-sound-btn" id="inboxFab" onclick="toggleInbox()" title="打开扫码收件箱" aria-label="打开扫码收件箱">📨<span class="inbox-badge" id="inboxBadge" style="display:none">0</span></button>
         <div class="contact-item" title="钉钉">
             <img src="images/qiwei_icon.png" width="22" height="22" loading="lazy" decoding="async" alt="钉钉" onerror="imgFallback(this)">
             <span class="emoji-fallback">🏢</span>
@@ -86,7 +88,6 @@
                     <img src="images/logo.png" alt="Logo" class="main-logo" width="42" height="42" decoding="async" onerror="imgFallback(this)">
                     <span class="emoji-fallback is-lg">🌐</span>
                 </button>
-                <button type="button" class="inbox-entry-btn" id="inboxQrEntry" title="扫码传内容" onclick="openInboxQr()">📡</button>
                 <div class="header-title">
                     <h1>MatrixNode IP 二维码生成</h1>
                     <div class="header-desc">支持 Egern (iOS) &amp; v2rayNG (Android) | 端到端加密本地解析</div>
@@ -442,15 +443,28 @@
     <div class="inbox-modal" id="inboxQrModal" onclick="if(event.target===this)closeInboxQr()">
         <div class="inbox-modal-card">
             <h3>📱 扫码传内容</h3>
-            <p class="inbox-tip">手机扫码，把文字 / 图片发送到本页右下角收件箱</p>
+            <p class="inbox-tip">手机扫码打开上传页，把文字 / 图片发送到本页右下角收件箱</p>
             <div class="inbox-qr" id="inboxQrBox"></div>
             <button type="button" class="inbox-close-btn" onclick="closeInboxQr()">关闭</button>
         </div>
     </div>
     <div class="inbox-widget" id="inboxWidget">
-        <button type="button" class="inbox-fab" id="inboxFab" onclick="toggleInbox()">📨<span class="inbox-badge" id="inboxBadge" style="display:none">0</span></button>
         <div class="inbox-panel" id="inboxPanel" style="display:none">
-            <div class="inbox-panel-head"><span>📨 扫码收件箱</span><button type="button" onclick="toggleInbox()">✕</button></div>
+            <div class="inbox-panel-head">
+                <span>📨 扫码收件箱</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button type="button" class="inbox-qr-mini-btn" onclick="openInboxQr()" title="弹出手机扫码二维码">📱 手机扫码</button>
+                    <button type="button" onclick="toggleInbox()" title="关闭">✕</button>
+                </div>
+            </div>
+            <div class="inbox-composer">
+                <textarea id="inboxDirectText" class="inbox-composer-input" rows="2" placeholder="在此直接输入文字，或点击下方选择图片发送…"></textarea>
+                <div class="inbox-composer-bar">
+                    <label class="inbox-composer-file">📷 选图/拍照<input type="file" id="inboxDirectFile" accept="image/*" style="display:none" onchange="onInboxDirectFileChange(this)"></label>
+                    <span id="inboxDirectFileName" class="inbox-composer-filename"></span>
+                    <button type="button" class="inbox-composer-send" id="inboxDirectSendBtn" onclick="submitInboxDirect()">发送</button>
+                </div>
+            </div>
             <div class="inbox-list" id="inboxList"></div>
         </div>
     </div>

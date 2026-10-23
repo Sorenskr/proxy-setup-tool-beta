@@ -469,7 +469,7 @@
         const itemsMap = (window.probeState && window.probeState.items) || {};
         const rec = (card.id && itemsMap[card.id]) || (card.name && itemsMap[card.name]) || null;
 
-        let status = 'unknown';
+        let status = 'up';
         let isManual = false;
         if (card.statusOverride === 'up') {
             status = 'up';
@@ -477,12 +477,10 @@
         } else if (card.statusOverride === 'down') {
             status = 'down';
             isManual = true;
-        } else if (rec && rec.status === 'up') {
-            status = 'up';
         } else if (rec && rec.status === 'down') {
             status = 'down';
         } else {
-            status = 'unknown';
+            status = 'up';
         }
 
         const color = status === 'up' ? 'green' : (status === 'down' ? 'red' : 'grey');
@@ -542,12 +540,12 @@
             });
     };
 
-    // DOMContentLoaded 时启动（保证 main.js 的全局变量已就绪），并开启 60s 自动探测结果轮询
+    // DOMContentLoaded 时启动（保证 main.js 的全局变量已就绪），并开启 15 分钟自动探测结果轮询
     window.siteContentReady = new Promise(resolve => {
         document.addEventListener('DOMContentLoaded', () => {
             load().then(() => {
                 window.fetchProbeState();
-                setInterval(() => { window.fetchProbeState(); }, 60000);
+                setInterval(() => { window.fetchProbeState(); }, 15 * 60 * 1000);
                 resolve();
             });
         });

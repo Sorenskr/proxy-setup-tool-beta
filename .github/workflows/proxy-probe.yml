@@ -2,7 +2,7 @@ name: Proxy Probe（前置代理自动探测）
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # 每 5 分钟（UTC，高峰可能延迟几分钟，属正常）
+    - cron: '*/15 * * * *'  # 每 15 分钟探测一次（UTC）
   workflow_dispatch:        # 允许在 Actions 页面手动 Run workflow
 
 jobs:

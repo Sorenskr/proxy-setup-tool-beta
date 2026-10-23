@@ -502,7 +502,10 @@ function updateInboxOcr(id, ocrText) {
 }
 
 function getInboxPageHtml(room) {
-  var ROOM = JSON.stringify(room || '');
+  var ROOM = JSON.stringify(room || INBOX_ROOM);
+  var serviceUrl = '';
+  try { serviceUrl = ScriptApp.getService().getUrl(); } catch (e) { serviceUrl = ''; }
+  var BASE_JSON = JSON.stringify(serviceUrl || 'https://script.google.com/macros/s/AKfycbx-1u4836W99nFQxVkhbDKdc9uBnZEBWtI88m6PwhoTiAtkM4QdPFXmu8YMr_2SdYhvDg/exec');
   var h = [];
   h.push('<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">');
   h.push('<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">');
@@ -518,12 +521,12 @@ function getInboxPageHtml(room) {
   h.push('</div>');
   h.push('<scr' + 'ipt>');
   h.push('var ROOM=' + ROOM + ';');
-  h.push('var BASE=location.origin+location.pathname;');
+  h.push('var BASE=' + BASE_JSON + ';');
   h.push('function $(id){return document.getElementById(id);}');
   h.push('function setMsg(t,ok){var m=$("msg");m.textContent=t;m.className="msg "+(ok?"ok":"err");}');
   h.push('function compress(file){return new Promise(function(res){var img=new Image();img.onload=function(){var max=1280,w=img.width,h=img.height;if(w>max||h>max){if(w>=h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;}}var c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);res(c.toDataURL("image/jpeg",0.82));};img.src=URL.createObjectURL(file);});}');
   h.push('$("img").onchange=function(){var f=this.files[0];if(f){$("preview").textContent="已选："+f.name+"（约"+Math.round(f.size/1024)+"KB）";}};');
-  h.push('$("btn").onclick=async function(){var text=$("txt").value.trim();var file=$("img").files[0];if(!text&&!file){setMsg("请输入文字或选择图片",false);return;}var body={action:"INBOX_SUBMIT",room:ROOM,ua:navigator.userAgent,text:text};if(file){setMsg("正在压缩图片…");var d=await compress(file);body.type="image";body.base64=d.split(",")[1];body.mimeType="image/jpeg";body.fileName="inbox.jpg";}else{body.type="text";}setMsg("发送中…");try{var r=await fetch(BASE,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(body)});var j=await r.json();if(j.ok){setMsg("✅ 已发送",true);$("txt").value="";$("img").value="";$("preview").textContent="";}else{setMsg("失败："+(j.error||""),false);}}catch(e){setMsg("发送失败："+e.message,false);}};');
+  h.push('$("btn").onclick=async function(){var text=$("txt").value.trim();var file=$("img").files[0];if(!text&&!file){setMsg("请输入文字或选择图片",false);return;}var body={action:"INBOX_SUBMIT",room:ROOM,ua:navigator.userAgent,text:text};if(file){setMsg("正在压缩图片…");var d=await compress(file);body.type="image";body.base64=d.split(",")[1];body.mimeType="image/jpeg";body.fileName="inbox.jpg";}else{body.type="text";}setMsg("发送中…");if(typeof google!=="undefined"&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){setMsg("✅ 已发送",true);$("txt").value="";$("img").value="";$("preview").textContent="";}).withFailureHandler(function(err){setMsg("发送失败："+(err&&err.message||err),false);}).handleInboxSubmit(body);return;}try{var r=await fetch(BASE,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(body)});var j=await r.json();if(j.ok){setMsg("✅ 已发送",true);$("txt").value="";$("img").value="";$("preview").textContent="";}else{setMsg("失败："+(j.error||""),false);}}catch(e){setMsg("发送失败："+e.message,false);}};');
   h.push('</scr' + 'ipt>');
   h.push('</body></html>');
   return h.join('');
