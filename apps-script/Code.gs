@@ -135,6 +135,10 @@ function doPost(e) {
         saveProbeResult(data);
         return jsonOut({ ok: true, probe: getProbeResult() });
 
+      case 'MANUAL_OVERRIDE':
+        requireToken_(data);
+        return jsonOut({ ok: true, probe: saveManualOverride_(data) });
+
       case 'LIST_PROXY_NODES':
         requireToken_(data);
         return jsonOut({ ok: true, probeIntervalMin: getProbeIntervalMin(), nodes: readProxyNodes_(false) });
@@ -438,13 +442,34 @@ function saveProbeResult(data) {
     var id = r.id || r.name;
     if (!id) return;
     var prev = items[id] || {};
-    var isUp = r.status === 'up';
+    var rawStatus = r.rawStatus || (r.status === 'up' ? 'up' : 'down');
+    var prevFailCount = Number(prev.failCount || 0);
+    var failCount = r.failCount !== undefined ? Number(r.failCount) : (rawStatus === 'up' ? 0 : prevFailCount + 1);
+    var timeTotal = r.timeTotal !== undefined ? Number(r.timeTotal) : (r.latencyMs ? Number((r.latencyMs / 1000).toFixed(2)) : 0);
+
+    // 抗抖动但不误绿：连续 2 次 down 才从绿/黄变红；1 次 up 立即恢复
+    var isUp = rawStatus === 'up';
+    if (!isUp && prev.status === 'up' && failCount < 2) {
+      isUp = true;
+    }
+    var quality = isUp ? (timeTotal >= 1.5 ? 'slow' : 'good') : 'down';
 
     // 管理员手动覆盖优先：被锁定的节点不被自动探测改写状态，只更新探测时间和自动结果
     if (prev.manualOverride) {
       items[id] = Object.assign({}, prev, {
         lastCheckedAt: r.checkedAt || '',
-        autoStatus: isUp ? 'up' : 'down'
+        autoStatus: isUp ? 'up' : 'down',
+        timeTotal: timeTotal,
+        latencyMs: r.latencyMs || 0,
+        quality: quality,
+        googleOk: Boolean(r.googleOk),
+        igOk: Boolean(r.igOk),
+        failCount: failCount,
+        exitIp: r.exitIp || prev.exitIp || '',
+        country: r.country || prev.country || '',
+        region: r.regionName || r.region || prev.region || '',
+        city: r.city || prev.city || '',
+        isp: r.isp || prev.isp || ''
       });
       return;
     }
@@ -461,18 +486,25 @@ function saveProbeResult(data) {
       name: r.name || prev.name || id,
       type: r.type || prev.type || 'hysteria2',
       status: isUp ? 'up' : 'down',
-      exitIp: r.exitIp || '',
-      country: r.country || '',
-      region: r.regionName || r.region || '',
-      city: r.city || '',
-      isp: r.isp || '',
+      quality: quality,
+      timeTotal: timeTotal,
+      googleOk: Boolean(r.googleOk),
+      igOk: Boolean(r.igOk),
+      failCount: failCount,
+      exitIp: r.exitIp || prev.exitIp || '',
+      country: r.country || prev.country || '',
+      region: r.regionName || r.region || prev.region || '',
+      city: r.city || prev.city || '',
+      isp: r.isp || prev.isp || '',
       latencyMs: r.latencyMs || 0,
       error: r.error || '',
       lastCheckedAt: r.checkedAt || '',
-      firstOnlineAt: prev.firstOnlineAt || (isUp ? r.checkedAt : ''), // 首次上线时间
+      firstOnlineAt: prev.firstOnlineAt || (isUp ? r.checkedAt : ''),
       lastUpAt: isUp ? r.checkedAt : (prev.lastUpAt || ''),
-      downSince: downSince,                                           // 断网开始时间
-      manualOverride: false
+      downSince: downSince,
+      manualOverride: false,
+      manualStatus: 'auto',
+      manualNote: prev.manualNote || ''
     };
   });
 
@@ -480,6 +512,42 @@ function saveProbeResult(data) {
   state.checkedAt = data.checkedAt || nowStr();
   state.updatedAt = data.checkedAt || nowStr();
   state.results = results;
+  PropertiesService.getScriptProperties().setProperty('PROBE_RESULT', JSON.stringify(state));
+  return state;
+}
+
+/**
+ * 后台手动强制标红/标绿开关（manualOverride）与备注保存
+ */
+function saveManualOverride_(data) {
+  var id = String(data.id || data.name || '').trim();
+  if (!id) throw new Error('缺少节点 ID');
+  var state = getProbeResult();
+  var items = state.items || {};
+  var prev = items[id] || { id: id, name: data.name || id };
+  var mode = String(data.mode || data.statusOverride || 'auto').toLowerCase();
+  var note = data.manualNote !== undefined ? String(data.manualNote).trim() : (prev.manualNote || '');
+  var now = nowStr();
+
+  if (mode === 'up' || mode === 'down') {
+    prev.manualOverride = true;
+    prev.manualStatus = mode;
+    prev.status = mode;
+    prev.manualNote = note;
+    if (mode === 'down') {
+      prev.downSince = data.manualDownAt || prev.downSince || now;
+    } else {
+      prev.downSince = '';
+    }
+  } else {
+    prev.manualOverride = false;
+    prev.manualStatus = 'auto';
+    prev.manualNote = note;
+    if (prev.autoStatus) prev.status = prev.autoStatus;
+  }
+
+  items[id] = prev;
+  state.items = items;
   PropertiesService.getScriptProperties().setProperty('PROBE_RESULT', JSON.stringify(state));
   return state;
 }

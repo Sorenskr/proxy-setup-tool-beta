@@ -1,9 +1,9 @@
 // ================== 1. 数据资产静态映射区 ==================
 let proxyList = [
-    { id: 'proxy_1', name: '李俊鑫组 美区前置', qrMode: 'image', imgPath: 'images/proxy1.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' },
-    { id: 'proxy_2', name: '宋磊马宇航组 美区前置', qrMode: 'image', imgPath: 'images/proxy2.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' },
-    { id: 'proxy_3', name: '慕杰组 美区前置', qrMode: 'image', imgPath: 'images/proxy3.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' },
-    { id: 'proxy_4', name: '台湾前置代理', qrMode: 'image', imgPath: 'images/proxy4.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualDownAt: '' }
+    { id: 'proxy_1', name: '李俊鑫组 美区前置', qrMode: 'image', imgPath: 'images/proxy1.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' },
+    { id: 'proxy_2', name: '宋磊马宇航组 美区前置', qrMode: 'image', imgPath: 'images/proxy2.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' },
+    { id: 'proxy_3', name: '慕杰组 美区前置', qrMode: 'image', imgPath: 'images/proxy3.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' },
+    { id: 'proxy_4', name: '台湾前置代理', qrMode: 'image', imgPath: 'images/proxy4.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' }
 ];
 
 let companyWifiList = [

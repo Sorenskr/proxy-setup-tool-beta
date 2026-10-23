@@ -36,6 +36,7 @@
         if (!Array.isArray(list)) return [];
         return list.map((c, idx) => {
             const o = Object.assign({}, c);
+            const statusOverride = (o.statusOverride === 'up' || o.statusOverride === 'down') ? o.statusOverride : 'auto';
             return {
                 id: String(o.id || ('proxy_' + (idx + 1))).trim(),
                 name: String(o.name || '').trim(),
@@ -44,8 +45,10 @@
                 proxyUrl: String(o.proxyUrl || '').trim(),
                 visible: o.visible !== false,
                 firstOnlineAt: String(o.firstOnlineAt || '2026/10/22 10:00:00').trim(),
-                statusOverride: (o.statusOverride === 'up' || o.statusOverride === 'down') ? o.statusOverride : 'auto',
-                manualDownAt: String(o.manualDownAt || '').trim()
+                statusOverride: statusOverride,
+                manualOverride: statusOverride !== 'auto' || Boolean(o.manualOverride),
+                manualDownAt: String(o.manualDownAt || '').trim(),
+                manualNote: String(o.manualNote || '').trim()
             };
         });
     }
@@ -414,6 +417,7 @@
                 if (!r || typeof r !== 'object') return;
                 const id = r.id || r.name;
                 if (!id) return;
+                const prevItem = out.items[id] || {};
                 const merged = Object.assign({
                     id: id,
                     name: r.name || id,
@@ -425,11 +429,22 @@
                     city: r.city || '',
                     isp: r.isp || '',
                     latencyMs: r.latencyMs || 0,
+                    timeTotal: r.timeTotal || 0,
+                    quality: r.quality || '',
+                    googleOk: r.googleOk,
+                    igOk: r.igOk,
+                    failCount: r.failCount || 0,
                     lastCheckedAt: r.checkedAt || r.lastCheckedAt || out.updatedAt,
                     firstOnlineAt: r.firstOnlineAt || '',
                     lastUpAt: r.status === 'up' ? (r.checkedAt || out.updatedAt) : '',
                     downSince: r.status !== 'up' ? (r.downSince || r.checkedAt || out.updatedAt) : ''
-                }, out.items[id] || {});
+                }, prevItem, {
+                    timeTotal: r.timeTotal !== undefined ? r.timeTotal : prevItem.timeTotal,
+                    quality: r.quality || prevItem.quality || '',
+                    googleOk: r.googleOk !== undefined ? r.googleOk : prevItem.googleOk,
+                    igOk: r.igOk !== undefined ? r.igOk : prevItem.igOk,
+                    failCount: r.failCount !== undefined ? r.failCount : (prevItem.failCount || 0)
+                });
                 out.items[id] = merged;
                 if (r.name) out.items[r.name] = merged;
             });
@@ -437,86 +452,147 @@
         return out;
     }
 
-    /** 将检测时间转为“x 分钟前检测”（按后台配置的 probeIntervalMin 周期展示，默认 15 分钟） */
-    window.formatProbeCheckedAgo = function (timeStr) {
-        if (!timeStr) return '';
+    /** 解析探测时间字符串，返回 { ms, hhmm, elapsedMin, isExpired } */
+    function parseProbeTimeInfo(timeStr) {
+        if (!timeStr) return { ms: NaN, hhmm: '', elapsedMin: Infinity, isExpired: false };
         const s = String(timeStr).trim();
-        if (!s) return '';
-        // 统一按 Asia/Shanghai (+08:00) 解析 yyyy/MM/dd HH:mm:ss 或 yyyy-MM-dd HH:mm:ss
+        if (!s) return { ms: NaN, hhmm: '', elapsedMin: Infinity, isExpired: false };
         let ms = NaN;
+        let hhmm = '';
         const m = /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/.exec(s);
         if (m) {
-            const iso = `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}T${String(m[4]).padStart(2, '0')}:${String(m[5]).padStart(2, '0')}:${String(m[6] || '00').padStart(2, '0')}+08:00`;
+            const hh = String(m[4]).padStart(2, '0');
+            const mm = String(m[5]).padStart(2, '0');
+            hhmm = `${hh}:${mm}`;
+            const iso = `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}T${hh}:${mm}:${String(m[6] || '00').padStart(2, '0')}+08:00`;
             ms = Date.parse(iso);
         } else {
             ms = Date.parse(s);
+            if (!isNaN(ms)) {
+                const bj = new Date(ms + 8 * 3600 * 1000);
+                hhmm = `${String(bj.getUTCHours()).padStart(2, '0')}:${String(bj.getUTCMinutes()).padStart(2, '0')}`;
+            }
         }
-        if (isNaN(ms)) return s + ' 检测';
-        let intervalMin = 15;
-        try {
-            const saved = parseInt(localStorage.getItem('cfgProbeIntervalMin') || '15', 10);
-            if (saved >= 1 && saved <= 1440) intervalMin = saved;
-        } catch (e) {}
-        let diffMin = Math.max(0, Math.floor((Date.now() - ms) / 60000));
-        if (diffMin >= intervalMin) {
-            diffMin = diffMin % intervalMin;
+        if (isNaN(ms)) return { ms: NaN, hhmm: '', elapsedMin: Infinity, isExpired: false };
+        const elapsedMin = Math.max(0, (Date.now() - ms) / 60000);
+        return {
+            ms,
+            hhmm,
+            elapsedMin,
+            isExpired: elapsedMin > 30
+        };
+    }
+
+    /** 将检测时间转为“最近探测于 xx:xx”，超过 30 分钟没更新显示“数据过期” */
+    window.formatProbeCheckedAgo = function (timeStr) {
+        if (!timeStr) return '';
+        const info = parseProbeTimeInfo(timeStr);
+        if (isNaN(info.ms)) return String(timeStr).trim();
+        if (info.isExpired) {
+            return `最近探测于 ${info.hhmm} · 数据过期`;
         }
-        return `${diffMin} 分钟前检测`;
+        return `最近探测于 ${info.hhmm}`;
     };
 
     /**
      * 独立状态判定函数 getProxyStatus(item)
      * 优先级：
-     *  1. item.statusOverride === 'up'   -> 绿 ('up')
-     *  2. item.statusOverride === 'down' -> 红 ('down')
-     *  3. 'auto' -> 先按 item.id、再按 item.name 从 window.probeState.items 匹配：
-     *     status === 'up' -> 绿 ('up')，status === 'down' -> 红 ('down')，查不到 -> 灰 ('unknown')
+     *  1. 后台手动强制标记优先 (statusOverride / manualOverride: 'up' -> 绿，'down' -> 红+遮罩)
+     *  2. 自动模式 ('auto')：
+     *     - 无探测记录 -> 'unknown'（灰色"待检测"，无遮罩）
+     *     - 超过 30 分钟未更新 -> 'expired'（灰色"数据过期"，无遮罩）
+     *     - 30 分钟内有效数据：
+     *       * status === 'down' 或 timeTotal > 3s -> 'down'（红点 + 遮罩）
+     *       * status === 'up' 且 1.5s <= timeTotal <= 3s -> 'up'，dotState = 'slow'（黄点，卡片显示"较慢"）
+     *       * status === 'up' 且 timeTotal < 1.5s -> 'up'，dotState = 'up'（绿点，优质）
      */
     window.getProxyStatus = function (item) {
         const card = item || {};
         const itemsMap = (window.probeState && window.probeState.items) || {};
         const rec = (card.id && itemsMap[card.id]) || (card.name && itemsMap[card.name]) || null;
 
-        let status = 'unknown';
-        let isManual = false;
-        if (card.statusOverride === 'up') {
-            status = 'up';
-            isManual = true;
-        } else if (card.statusOverride === 'down') {
-            status = 'down';
-            isManual = true;
-        } else if (rec && rec.status === 'up') {
-            status = 'up';
-        } else if (rec && rec.status === 'down') {
-            status = 'down';
-        } else {
-            status = 'unknown';
-        }
-
-        const color = status === 'up' ? 'green' : (status === 'down' ? 'red' : 'grey');
-        const dotClass = status === 'up' ? 'is-up' : (status === 'down' ? 'is-down' : 'is-unknown');
-        const firstOnlineAt = String(card.firstOnlineAt || (rec && rec.firstOnlineAt) || '').trim();
-        const downAt = card.statusOverride === 'down'
-            ? String(card.manualDownAt || (rec && rec.downSince) || '').trim()
-            : String((rec && rec.downSince) || '').trim();
         const lastCheckedAt = String((rec && rec.lastCheckedAt) || (window.probeState && window.probeState.updatedAt) || '').trim();
-        const checkedAgoText = lastCheckedAt ? window.formatProbeCheckedAgo(lastCheckedAt) : '';
-        const locationText = rec ? [rec.country || '', rec.city || ''].filter(Boolean).join(' ') : '';
+        const timeInfo = parseProbeTimeInfo(lastCheckedAt);
+
         const rawLat = (rec && Number(rec.latencyMs) > 0) ? Number(rec.latencyMs) : 0;
         const latencyMs = rawLat > 4000 ? (rawLat - 4000) : rawLat;
+        const timeTotalSec = (rec && Number(rec.timeTotal) > 0)
+            ? Number(rec.timeTotal)
+            : (latencyMs > 0 ? Number((latencyMs / 1000).toFixed(2)) : 0);
+
+        const manualMode = (card.statusOverride === 'up' || card.statusOverride === 'down')
+            ? card.statusOverride
+            : ((rec && rec.manualOverride && (rec.manualStatus === 'up' || rec.manualStatus === 'down')) ? rec.manualStatus : 'auto');
+        const manualNote = String(card.manualNote || (rec && rec.manualNote) || '').trim();
+
+        let status = 'unknown';
+        let dotState = 'unknown'; // 'up' (绿) | 'slow' (黄) | 'down' (红) | 'unknown' (灰)
+        let quality = 'unknown';  // 'good' | 'slow' | 'down' | 'expired' | 'unknown'
+        let isManual = false;
+        let isExpired = false;
+
+        if (manualMode === 'up') {
+            status = 'up';
+            dotState = 'up';
+            quality = 'good';
+            isManual = true;
+        } else if (manualMode === 'down') {
+            status = 'down';
+            dotState = 'down';
+            quality = 'down';
+            isManual = true;
+        } else if (!rec || !lastCheckedAt) {
+            status = 'unknown';
+            dotState = 'unknown';
+            quality = 'unknown';
+        } else if (timeInfo.isExpired) {
+            status = 'expired';
+            dotState = 'unknown';
+            quality = 'expired';
+            isExpired = true;
+        } else if (rec.status === 'down' || (timeTotalSec > 3.0)) {
+            status = 'down';
+            dotState = 'down';
+            quality = 'down';
+        } else if (rec.status === 'up') {
+            status = 'up';
+            if (timeTotalSec >= 1.5 || rec.quality === 'slow') {
+                dotState = 'slow';
+                quality = 'slow';
+            } else {
+                dotState = 'up';
+                quality = 'good';
+            }
+        }
+
+        const color = dotState === 'up' ? 'green' : (dotState === 'slow' ? 'yellow' : (dotState === 'down' ? 'red' : 'grey'));
+        const dotClass = `is-${dotState}`;
+        const firstOnlineAt = String(card.firstOnlineAt || (rec && rec.firstOnlineAt) || '').trim();
+        const downAt = manualMode === 'down'
+            ? String(card.manualDownAt || (rec && rec.downSince) || '').trim()
+            : String((rec && rec.downSince) || '').trim();
+        const checkedAgoText = lastCheckedAt ? window.formatProbeCheckedAgo(lastCheckedAt) : '';
+        const locationText = rec ? [rec.country || '', rec.city || ''].filter(Boolean).join(' ') : '';
+        const latencySecText = timeTotalSec > 0 ? `${timeTotalSec.toFixed(2)}s` : '';
 
         return {
             status,
+            dotState,
+            quality,
             color,
             dotClass,
             isManual,
+            isExpired,
+            manualNote,
             probe: rec,
             firstOnlineAt,
             downAt,
             lastCheckedAt,
             checkedAgoText,
             locationText,
-            latencyMs
+            latencyMs,
+            timeTotalSec,
+            latencySecText
         };
     };
 

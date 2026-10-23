@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 /**
- * probe-proxies.mjs —— 前置代理自动探测器
- * GitHub Actions 每 5 分钟在海外 runner 运行：
- *  1. 先请求 Apps Script (GET_PROBE_TASK)：读取后台配置的 probeIntervalMin（默认 15 分钟）、上次探测时间及 PROXY_Nodes 中所有「已上线」节点
- *  2. 若距离上次探测未满 probeIntervalMin 分钟，直接跳过退出，不重复探测
- *  3. 若已满间隔，逐个探测已上线节点并写回 Apps Script (PROBE_RESULT)
+ * probe-proxies.mjs —— 前置代理自动探测器（真实业务双目标 + 延迟分级 + 抗抖动）
+ * GitHub Actions 在海外 runner 运行：
+ *  1. 先请求 Apps Script：读取后台配置的 probeIntervalMin（默认 15 分钟）、上次探测结果及已上线节点
+ *  2. 通过代理同时探测两个真实业务目标（8s 超时）：
+ *     - https://www.google.com/generate_204 （必须返回 204）
+ *     - https://www.instagram.com/          （必须连通返回 2xx/3xx）
+ *     两个都通且 time_total <= 3s 才算 up；任一不通、超时或 time_total > 3s 算 down。
+ *  3. 延迟分级（基于 curl time_total 秒）：
+ *     - < 1.5s：绿点（good，优质）
+ *     - 1.5 ~ 3s：黄点（slow，较慢）
+ *     - > 3s 或 8s 超时：红点（down，断网加遮罩）
+ *  4. 抗抖动但不误绿：
+ *     - 原先为 up 的节点，连续 2 次探测都 down 才从绿/黄变红（防瞬时抖动）
+ *     - 一旦 1 次探测 up（Google + IG 双目标均通过且 <= 3s），立即恢复绿/黄
  * 安全约束：日志仅打印节点名称与状态，严禁打印任何密码（auth/password）
  */
 import { execFile, spawn } from 'node:child_process';
@@ -26,6 +35,11 @@ if (!TOKEN) { console.error('缺少环境变量 PROBE_TOKEN'); process.exit(1); 
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+const GOOGLE_204_URL = 'https://www.google.com/generate_204';
+const IG_URL = 'https://www.instagram.com/';
+const IP_API = 'http://ip-api.com/json/?lang=zh-CN&fields=status,message,country,regionName,city,isp,query';
+const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
 function nowCST() {
   const d = new Date(Date.now() + 8 * 3600 * 1000);
   const p = (n) => String(n).padStart(2, '0');
@@ -46,21 +60,104 @@ function parseChinaTimeMs(str) {
   return Number.isNaN(d) ? 0 : d;
 }
 
-const IP_API = 'http://ip-api.com/json/?lang=zh-CN&fields=status,message,country,regionName,city,isp,query';
-
-function fillResultFromIp(base, stdout) {
-  const j = JSON.parse(String(stdout).trim());
-  if (j && j.status === 'success') {
-    base.status = 'up';
-    base.exitIp = j.query || '';
-    base.country = j.country || '';
-    base.region = j.regionName || '';
-    base.city = j.city || '';
-    base.isp = j.isp || '';
-    return true;
-  }
-  base.error = '出口回显校验未通过';
+function fillGeoFromIpApi(base, stdout) {
+  try {
+    const j = JSON.parse(String(stdout).trim());
+    if (j && j.status === 'success') {
+      base.exitIp = j.query || '';
+      base.country = j.country || '';
+      base.region = j.regionName || '';
+      base.city = j.city || '';
+      base.isp = j.isp || '';
+      return true;
+    }
+  } catch {}
   return false;
+}
+
+/**
+ * 使用 curl 测量单个目标 URL 的 HTTP 状态码与 time_total（秒），超时设为 8 秒
+ */
+async function curlProbeTarget(proxyArgs, targetUrl) {
+  const args = [
+    '-s', '-S',
+    '-o', '/dev/null',
+    '-w', '%{http_code} %{time_total}',
+    '--max-time', '8',
+    '-A', MOBILE_UA,
+    ...proxyArgs,
+    targetUrl
+  ];
+  try {
+    const { stdout } = await execFileP('curl', args, { timeout: 9500, maxBuffer: 1 << 20 });
+    const parts = String(stdout || '').trim().split(/\s+/);
+    const code = parseInt(parts[0], 10) || 0;
+    const sec = parseFloat(parts[1]);
+    const timeSec = Number.isNaN(sec) ? 8.0 : sec;
+    return { ok: code > 0, code, timeSec };
+  } catch {
+    return { ok: false, code: 0, timeSec: 8.0 };
+  }
+}
+
+/**
+ * 执行出口地理信息回显 + Google 204 + Instagram 双业务目标探测与延迟分级
+ */
+async function runDualTargetBusinessProbe(proxyArgs, base) {
+  // 1. 先请求 ip-api 获取出口 IP 与地区（同时预热代理隧道，避免首次握手计入业务延迟）
+  try {
+    const { stdout } = await execFileP('curl', [
+      '-s', '-S', '--max-time', '6', ...proxyArgs, IP_API
+    ], { timeout: 7500, maxBuffer: 1 << 20 });
+    fillGeoFromIpApi(base, stdout);
+  } catch {}
+
+  // 2. 真实业务目标 1：Google generate_204（要求返回 204）
+  const gRes = await curlProbeTarget(proxyArgs, GOOGLE_204_URL);
+  const googleOk = gRes.ok && gRes.code === 204 && gRes.timeSec <= 8.0;
+
+  // 3. 真实业务目标 2：Instagram（要求返回 2xx / 3xx）
+  const igRes = await curlProbeTarget(proxyArgs, IG_URL);
+  const igOk = igRes.ok && igRes.code >= 200 && igRes.code < 400 && igRes.timeSec <= 8.0;
+
+  base.googleOk = googleOk;
+  base.igOk = igOk;
+
+  // 两个业务目标都通才算通过；取两者的综合延迟（平均值，且任一超过 3s 则取较大值以严格触发 >3s 判定）
+  if (googleOk && igOk) {
+    const avgSec = (gRes.timeSec + igRes.timeSec) / 2;
+    const maxSec = Math.max(gRes.timeSec, igRes.timeSec);
+    const effectiveSec = maxSec > 3.0 ? maxSec : avgSec;
+    base.timeTotal = Number(effectiveSec.toFixed(2));
+    base.latencyMs = Math.max(1, Math.round(base.timeTotal * 1000));
+
+    if (base.timeTotal > 3.0) {
+      base.status = 'down';
+      base.quality = 'down';
+      base.error = `响应过慢 (${base.timeTotal}s > 3s)`;
+    } else if (base.timeTotal >= 1.5) {
+      base.status = 'up';
+      base.quality = 'slow';
+      base.error = '';
+    } else {
+      base.status = 'up';
+      base.quality = 'good';
+      base.error = '';
+    }
+  } else {
+    const failSec = Math.max(gRes.timeSec || 0, igRes.timeSec || 0);
+    base.timeTotal = Number(failSec.toFixed(2));
+    base.latencyMs = Math.round(base.timeTotal * 1000);
+    base.status = 'down';
+    base.quality = 'down';
+    if (!googleOk && !igOk) {
+      base.error = 'Google 与 Instagram 均不可达或超时';
+    } else if (!googleOk) {
+      base.error = 'Google (generate_204) 连通失败';
+    } else {
+      base.error = 'Instagram 业务连通失败';
+    }
+  }
 }
 
 // 直连 socks5/http（传统）
@@ -69,35 +166,29 @@ async function probeClassic(t, checkedAt) {
   const base = {
     id: t.id || t.name, name: t.name || t.id, type,
     exitIp: '', country: '', region: '', city: '', isp: '',
-    latencyMs: 0, status: 'down', error: '', checkedAt
+    latencyMs: 0, timeTotal: 0, quality: 'down', googleOk: false, igOk: false,
+    status: 'down', error: '', checkedAt
   };
   const host = t.host || t.server || '';
   const port = t.port || '';
   if (!host || !port) { base.error = '配置缺少地址或端口'; return base; }
   const proxyUrl = type === 'http' ? `http://${host}:${port}` : `socks5h://${host}:${port}`;
-  const args = ['-s', '-S', '--max-time', '8', '-x', proxyUrl, IP_API];
+  const proxyArgs = ['-x', proxyUrl];
   if (t.username || t.password) {
-    args.splice(2, 0, '--proxy-user', `${t.username || ''}:${t.password || ''}`);
+    proxyArgs.push('--proxy-user', `${t.username || ''}:${t.password || ''}`);
   }
-  const started = Date.now();
-  try {
-    const { stdout } = await execFileP('curl', args, { timeout: 10000, maxBuffer: 1 << 20 });
-    base.latencyMs = Date.now() - started;
-    fillResultFromIp(base, stdout);
-  } catch {
-    base.latencyMs = Date.now() - started;
-    base.error = '连接超时或不可达';
-  }
+  await runDualTargetBusinessProbe(proxyArgs, base);
   return base;
 }
 
-// 通过 hysteria 客户端把节点转成本地 socks5，再 curl
+// 通过 hysteria 客户端把节点转成本地 socks5，再 curl 测双业务目标
 async function probeHysteria2(t, idx, checkedAt) {
   const port = BASE_PORT + idx;
   const base = {
     id: t.id || t.name, name: t.name || t.id, type: 'hysteria2',
     exitIp: '', country: '', region: '', city: '', isp: '',
-    latencyMs: 0, status: 'down', error: '', checkedAt
+    latencyMs: 0, timeTotal: 0, quality: 'down', googleOk: false, igOk: false,
+    status: 'down', error: '', checkedAt
   };
   if (!t.server || !t.port) { base.error = '配置缺少 server/port'; return base; }
 
@@ -123,26 +214,15 @@ socks5:
     child.on('exit', (code) => { exitedCode = code; });
     child.on('error', () => { exitedCode = 'spawn-fail'; });
 
-    await sleep(4000); // 等待本地 hysteria 客户端进程就绪，不计入代理网络延迟
+    await sleep(4000); // 等待本地 hysteria 客户端就绪，不计入代理网络延迟
 
-    const reqStarted = Date.now();
-    try {
-      const { stdout } = await execFileP('curl', [
-        '-s', '-S', '--max-time', '10',
-        '--socks5-hostname', `127.0.0.1:${port}`,
-        IP_API
-      ], { timeout: 12000, maxBuffer: 1 << 20 });
-      base.latencyMs = Date.now() - reqStarted;
-      fillResultFromIp(base, stdout);
-    } catch {
-      base.latencyMs = Date.now() - reqStarted;
-      if (exitedCode === 'spawn-fail') {
-        base.error = 'hysteria 客户端未就绪';
-      } else if (exitedCode !== null && exitedCode !== 0) {
-        base.error = '节点握手失败或已离线';
-      } else {
-        base.error = '代理链路超时或不可达';
-      }
+    if (exitedCode === 'spawn-fail') {
+      base.error = 'hysteria 客户端未就绪';
+    } else if (exitedCode !== null && exitedCode !== 0) {
+      base.error = '节点握手失败或已离线';
+    } else {
+      const proxyArgs = ['--socks5-hostname', `127.0.0.1:${port}`];
+      await runDualTargetBusinessProbe(proxyArgs, base);
     }
   } catch {
     base.error = '本地客户端启动异常';
@@ -156,11 +236,6 @@ socks5:
 
 /**
  * 从后台「1. 前置代理卡片」(content.proxyList) 的 proxyUrl 自动解析可探测节点
- * 支持：
- *  - Egern 链接：https://egernapp.com/proxies/new?json={"hysteria2":{...}}
- *  - Hysteria2 链接：hysteria2://auth@host:port?sni=xxx#name
- *  - 标准代理：socks5://user:pass@host:port 或 http://...
- *  - 四段式：ip:port:user:pass
  */
 function parseProxyCardToTarget(card) {
   if (!card || typeof card !== 'object' || card.visible === false) return null;
@@ -276,14 +351,21 @@ async function fetchProbeTask() {
       if (!taskData.lastCheckedAt) {
         taskData.lastCheckedAt = j2.probe.updatedAt || j2.probe.checkedAt || '';
       }
-      taskData.existingItems = j2.probe.items || {};
+      const map = Object.assign({}, j2.probe.items || {});
+      if (Array.isArray(j2.probe.results)) {
+        j2.probe.results.forEach(r => {
+          if (!r || typeof r !== 'object') return;
+          const k = r.id || r.name;
+          if (k) map[k] = Object.assign({}, map[k] || {}, r);
+        });
+      }
+      taskData.existingItems = map;
     }
     if (j2 && j2.probeIntervalMin) {
       taskData.probeIntervalMin = j2.probeIntervalMin;
     }
   } catch {}
 
-  // 同时拉取后台 ?action=content 中的 proxyList，自动把后台新增卡片纳入探测
   try {
     const r3 = await fetch(`${API_URL}${sep}action=content&t=${Date.now()}`);
     const j3 = await r3.json();
@@ -294,6 +376,43 @@ async function fetchProbeTask() {
   return taskData;
 }
 
+/**
+ * 抗抖动逻辑（连续 2 次 down 才从 up 变 down；1 次 up 且双目标通过立即恢复 up）
+ */
+function applyAntiJitter(rawResult, prevRecord) {
+  const prev = prevRecord || {};
+  const prevFailCount = Number(prev.failCount || 0);
+  const wasUp = prev.status === 'up';
+
+  if (rawResult.status === 'up') {
+    rawResult.failCount = 0;
+    rawResult.rawStatus = 'up';
+    return rawResult;
+  }
+
+  // 本次探测为 down
+  const nextFailCount = prevFailCount + 1;
+  rawResult.rawStatus = 'down';
+  rawResult.failCount = nextFailCount;
+
+  // 若此前处于 up 状态且本次只是第 1 次失败（nextFailCount < 2），保持 up 防瞬时抖动
+  if (wasUp && nextFailCount < 2) {
+    rawResult.status = 'up';
+    rawResult.quality = prev.quality || 'good';
+    rawResult.exitIp = rawResult.exitIp || prev.exitIp || '';
+    rawResult.country = rawResult.country || prev.country || '';
+    rawResult.region = rawResult.region || prev.region || '';
+    rawResult.city = rawResult.city || prev.city || '';
+    rawResult.isp = rawResult.isp || prev.isp || '';
+    rawResult.latencyMs = Number(prev.latencyMs) > 0 ? Number(prev.latencyMs) : 500;
+    rawResult.timeTotal = Number(prev.timeTotal) > 0
+      ? Number(prev.timeTotal)
+      : Number((rawResult.latencyMs / 1000).toFixed(2));
+    rawResult.jitterProtected = true;
+  }
+  return rawResult;
+}
+
 async function main() {
   const task = await fetchProbeTask();
   const intervalMin = Math.max(1, parseInt(task.probeIntervalMin || 15, 10) || 15);
@@ -301,7 +420,6 @@ async function main() {
   const lastMs = parseChinaTimeMs(lastCheckedAt);
   const elapsedMin = lastMs > 0 ? Math.max(0, Math.floor((Date.now() - lastMs) / 60000)) : null;
 
-  // 合并节点来源：1. PROXY_Nodes 表  2. 后台卡片 proxyList  3. 环境变量 PROXY_LIST 回退
   const mergedMap = new Map();
   const addNode = (n) => {
     if (!n || typeof n !== 'object') return;
@@ -333,11 +451,7 @@ async function main() {
     return;
   }
 
-  if (hasNewUnprobed) {
-    console.log('检测到后台新增尚未探测的代理卡片，立即执行首次探测…');
-  }
-
-  console.log(`开始探测：共 ${targets.length} 个已上线节点（间隔设定：${intervalMin} 分钟）`);
+  console.log(`开始真实业务双目标探测 (Google 204 + Instagram)：共 ${targets.length} 个节点`);
   const checkedAt = nowCST();
   const results = [];
 
@@ -350,9 +464,14 @@ async function main() {
     } else {
       r = await probeClassic(t, checkedAt);
     }
+    const prev = existingItems[r.id] || existingItems[r.name] || null;
+    r = applyAntiJitter(r, prev);
     results.push(r);
     // 安全日志：仅打印节点名称与状态，绝不打印密码或敏感连接串
-    console.log(`[${r.status.toUpperCase()}] ${r.name}`);
+    const tag = r.jitterProtected
+      ? 'UP(抗抖动保护,第1次失败)'
+      : (r.status === 'up' ? `UP(${r.quality},${r.timeTotal}s)` : `DOWN(连续失败${r.failCount}次)`);
+    console.log(`[${tag}] ${r.name}`);
   }
 
   console.log(`探测完成：${results.filter(r => r.status === 'up').length}/${results.length} 可用`);

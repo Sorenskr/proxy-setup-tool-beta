@@ -46,36 +46,58 @@ const CMS_SECTIONS = [
 /**
  * 状态文案辅助
  */
-function proxyStatusLabel(status) {
-    if (status === 'up') return '节点可用';
-    if (status === 'down') return '节点断网 / 不可用';
+function proxyStatusLabel(stOrStatus) {
+    const dot = typeof stOrStatus === 'object' && stOrStatus ? (stOrStatus.dotState || stOrStatus.status) : stOrStatus;
+    const status = typeof stOrStatus === 'object' && stOrStatus ? stOrStatus.status : stOrStatus;
+    if (status === 'expired') return '数据过期（超过30分钟未更新）';
+    if (dot === 'slow') return '较慢（1.5~3s）';
+    if (status === 'up' || dot === 'up') return '节点可用（优质 <1.5s）';
+    if (status === 'down' || dot === 'down') return '节点断网 / 不可用';
     return '待检测';
 }
 
 /**
  * 构建前置代理卡片底部副文案 HTML
+ *  - < 1.5s：绿点（优质）
+ *  - 1.5 ~ 3s：黄点（显示"较慢"）
+ *  - > 3s 或超时：红点 down
+ *  - 超过 30 分钟未更新：灰色"数据过期"
+ *  - 显示"最近探测于 xx:xx"及手动备注
  */
 function buildProxyMetaHtml(item, st) {
     const firstOnline = st.firstOnlineAt || (item && item.firstOnlineAt) || '—';
     let statusLine = '';
     if (st.status === 'up') {
         const loc = st.locationText || '海外出口';
-        const lat = st.latencyMs !== null && st.latencyMs !== undefined && st.latencyMs !== '' && Number(st.latencyMs) > 0
-            ? `${st.latencyMs} ms`
-            : '正常';
-        statusLine = `<div class="proxy-meta-line proxy-meta-up">📍 出口：${esc(loc)} · ⚡ ${esc(lat)}</div>`;
+        const latSec = st.latencySecText
+            || (st.latencyMs > 0 ? `${(Number(st.latencyMs) / 1000).toFixed(2)}s` : '正常');
+        if (st.dotState === 'slow' || st.quality === 'slow') {
+            statusLine = `<div class="proxy-meta-line proxy-meta-slow">📍 出口：${esc(loc)} · 🐢 ${esc(latSec)} · 较慢</div>`;
+        } else {
+            statusLine = `<div class="proxy-meta-line proxy-meta-up">📍 出口：${esc(loc)} · ⚡ ${esc(latSec)}${st.isManual ? '（强制标绿）' : ''}</div>`;
+        }
     } else if (st.status === 'down') {
         const downTime = (item && item.statusOverride === 'down' && item.manualDownAt)
             ? item.manualDownAt
             : (st.downAt || '—');
-        statusLine = `<div class="proxy-meta-line proxy-meta-down">⚠️ 断网：${esc(downTime)}</div>`;
+        statusLine = `<div class="proxy-meta-line proxy-meta-down">⚠️ 断网：${esc(downTime)}${st.isManual ? '（强制标红）' : ''}</div>`;
+    } else if (st.status === 'expired' || st.isExpired) {
+        statusLine = `<div class="proxy-meta-line proxy-meta-expired">⚪ 状态：数据过期</div>`;
     } else {
         statusLine = `<div class="proxy-meta-line proxy-meta-unknown">⚪ 状态：待检测</div>`;
     }
-    const checkLine = `<div class="proxy-meta-line proxy-meta-check">🕒 ${esc(st.checkedAgoText || '待检测')}</div>`;
+
+    const noteVal = String((item && item.manualNote) || st.manualNote || '').trim();
+    const noteLine = noteVal
+        ? `<div class="proxy-meta-line proxy-meta-note" title="${esc(noteVal)}">📌 备注：${esc(noteVal)}</div>`
+        : '';
+
+    const checkCls = (st.status === 'expired' || st.isExpired) ? 'proxy-meta-expired' : 'proxy-meta-check';
+    const checkLine = `<div class="proxy-meta-line ${checkCls}">🕒 ${esc(st.checkedAgoText || '待检测')}</div>`;
     return `
         <div class="proxy-meta-line proxy-meta-online">📅 首次上线：${esc(firstOnline)}</div>
         ${statusLine}
+        ${noteLine}
         ${checkLine}
     `;
 }
@@ -194,8 +216,9 @@ window.updateProxyCardsInPlace = function () {
 
         const dotEl = cardEl.querySelector('.proxy-status-dot');
         if (dotEl) {
-            dotEl.className = `proxy-status-dot is-${st.status}`;
-            dotEl.title = proxyStatusLabel(st.status);
+            const dotCls = st.dotClass || `is-${st.dotState || st.status}`;
+            dotEl.className = `proxy-status-dot ${dotCls}`;
+            dotEl.title = proxyStatusLabel(st);
         }
 
         const copyBtn = cardEl.querySelector('.proxy-copy-btn');
@@ -211,15 +234,20 @@ window.updateProxyCardsInPlace = function () {
         const maskEl = cardEl.querySelector('.proxy-unavail-mask');
         if (maskEl) {
             maskEl.style.display = isMasked ? '' : 'none';
+            const maskTxtEl = maskEl.querySelector('.proxy-unavail-text');
+            if (maskTxtEl) {
+                const note = String(item.manualNote || st.manualNote || '').trim();
+                maskTxtEl.innerHTML = `暂时无法使用，请联系负责人${note ? `<div style="font-size:11.5px;font-weight:500;opacity:0.9;margin-top:4px;">📌 ${esc(note)}</div>` : ''}`;
+            }
         }
     });
 };
 
 /**
  * 覆盖前端静态卡片渲染：过滤掉 visible === false 的前置代理与公司 WiFi 卡片
- * 1. 待探测/空 (unknown) -> 灰色"待检测"小圆点，【无遮罩】，二维码正常可扫可复制
- * 2. 明确 down -> 呼吸红点 + 毛玻璃遮罩「暂时无法使用，请联系负责人」+「点击临时查看」按钮
- * 3. up -> 呼吸绿点，无遮罩
+ * 1. 待探测/空 (unknown) / 数据过期 (expired) -> 灰色小圆点，【无遮罩】，二维码正常可扫可复制
+ * 2. 明确 down（或 >3s 超时） -> 呼吸红点 + 毛玻璃遮罩「暂时无法使用，请联系负责人」+「点击临时查看」按钮
+ * 3. up (<1.5s) -> 呼吸绿点；slow (1.5~3s) -> 呼吸黄点（显示"较慢"），均无遮罩
  */
 window.renderStaticCards = function () {
     const proxyGrid = document.getElementById('proxyGrid');
@@ -234,10 +262,12 @@ window.renderStaticCards = function () {
 
         const st = typeof window.getProxyStatus === 'function'
             ? window.getProxyStatus(item)
-            : { status: 'unknown', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '待检测' };
+            : { status: 'unknown', dotState: 'unknown', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '待检测' };
         const isMasked = st.status === 'down' && !dismissedProxyMasks.has(idx);
         const isLinkMode = item.qrMode === 'link';
         const initImgSrc = isLinkMode ? '' : esc(item.imgPath || '');
+        const dotCls = st.dotClass || `is-${st.dotState || st.status}`;
+        const noteText = String(item.manualNote || st.manualNote || '').trim();
 
         const cardEl = document.createElement('div');
         cardEl.className = `wifi-card proxy-card ${isMasked ? 'is-unavailable' : 'is-available'}`;
@@ -251,14 +281,14 @@ window.renderStaticCards = function () {
                 <img src="${initImgSrc}" class="qr-img" data-qr-idx="${idx}" alt="${esc(item.name)}" ${isLinkMode ? '' : 'onerror="imgFallback(this)"'}>
             </div>
             <div class="wifi-card-title proxy-card-title">
-                <span class="proxy-status-dot is-${st.status}" title="${esc(proxyStatusLabel(st.status))}"></span>
+                <span class="proxy-status-dot ${dotCls}" title="${esc(proxyStatusLabel(st))}"></span>
                 <span class="proxy-title-text">${esc(item.name)}</span>
             </div>
             <div class="proxy-meta">
                 ${buildProxyMetaHtml(item, st)}
             </div>
             <div class="proxy-unavail-mask" style="${isMasked ? '' : 'display:none;'}" onclick="event.stopPropagation()">
-                <div class="proxy-unavail-text">暂时无法使用，请联系负责人</div>
+                <div class="proxy-unavail-text">暂时无法使用，请联系负责人${noteText ? `<div style="font-size:11.5px;font-weight:500;opacity:0.9;margin-top:4px;">📌 ${esc(noteText)}</div>` : ''}</div>
                 <button type="button" class="proxy-temp-view-btn" onclick="dismissProxyMask(${idx}, event)">点击临时查看</button>
             </div>
         `;
@@ -382,7 +412,9 @@ function normalizeCmsState(state) {
                     if (item.statusOverride !== 'up' && item.statusOverride !== 'down' && item.statusOverride !== 'auto') {
                         item.statusOverride = 'auto';
                     }
+                    item.manualOverride = item.statusOverride !== 'auto' || Boolean(item.manualOverride);
                     if (item.manualDownAt === undefined) item.manualDownAt = '';
+                    if (item.manualNote === undefined) item.manualNote = '';
                 }
             });
         }
@@ -671,32 +703,85 @@ window.cmsSetProxyStatusOverride = function (index, mode) {
     cmsDirty = true;
     dismissedProxyMasks.delete(Number(index));
     item.statusOverride = (mode === 'up' || mode === 'down') ? mode : 'auto';
+    item.manualOverride = item.statusOverride !== 'auto';
     if (item.statusOverride === 'down' && !item.manualDownAt) {
         item.manualDownAt = cmsNowChinaStr();
     }
     renderCmsPanel();
 };
 
-/** 前置代理卡片：一键快捷设置状态（置为不可用自动填当前时间 / 恢复可用 / 恢复自动） */
+/** 前置代理卡片：一键强制标红 / 强制标绿 / 恢复自动（manualOverride），立即生效并同步云端 */
 window.cmsQuickProxyStatus = function (index, targetStatus) {
     const item = (cmsState && cmsState.proxyList || [])[index];
     if (!item) return;
-    cmsDirty = true;
     dismissedProxyMasks.delete(Number(index));
     if (targetStatus === 'down') {
         item.statusOverride = 'down';
+        item.manualOverride = true;
         item.manualDownAt = cmsNowChinaStr();
-        if (typeof showToast === 'function') showToast('🔴 已设为强制不可用并填入当前时间，请记得点击保存下发');
+        if (!item.manualNote) {
+            const noteInput = prompt('📝 可填写手动标红备注（如：国内直连异常/维护中，直接点确定可留空）：', item.manualNote || '');
+            if (noteInput !== null) item.manualNote = String(noteInput).trim();
+        }
     } else if (targetStatus === 'up') {
         item.statusOverride = 'up';
+        item.manualOverride = true;
         item.manualDownAt = '';
-        if (typeof showToast === 'function') showToast('🟢 已设为强制可用，请记得点击保存下发');
     } else {
         item.statusOverride = 'auto';
+        item.manualOverride = false;
         item.manualDownAt = '';
-        if (typeof showToast === 'function') showToast('🤖 已恢复自动探测模式，请记得点击保存下发');
     }
+
+    // 同步更新本地 window.probeState 中的 manualOverride 状态
+    if (window.probeState && window.probeState.items) {
+        const key = item.id || item.name;
+        if (key && window.probeState.items[key]) {
+            window.probeState.items[key].manualOverride = item.manualOverride;
+            window.probeState.items[key].manualStatus = item.statusOverride;
+            window.probeState.items[key].manualNote = item.manualNote || '';
+        }
+    }
+
+    // 立即应用到本地并同步下发云端
+    applyAndPersistLocal(cmsState);
     renderCmsPanel();
+
+    if (window.hasCloudApi && window.hasCloudApi()) {
+        const token = localStorage.getItem(CMS_TOKEN_KEY) || '';
+        if (token) {
+            window.postToApi({
+                action: 'MANUAL_OVERRIDE',
+                token,
+                id: item.id,
+                name: item.name,
+                mode: item.statusOverride,
+                manualDownAt: item.manualDownAt || '',
+                manualNote: item.manualNote || ''
+            }, true).catch(() => {});
+            window.postToApi({ action: 'SAVE_CONTENT', token, content: cmsState }, true)
+                .then(j => {
+                    if (j && j.ok) {
+                        cmsDirty = false;
+                        renderCmsPanel();
+                        if (typeof showToast === 'function') {
+                            const label = targetStatus === 'down' ? '🔴 已一键强制标红并全网生效'
+                                : (targetStatus === 'up' ? '🟢 已一键强制标绿并全网生效' : '🤖 已恢复自动探测并全网生效');
+                            showToast(label);
+                        }
+                    }
+                })
+                .catch(() => {});
+            return;
+        }
+    }
+    cmsDirty = true;
+    renderCmsPanel();
+    if (typeof showToast === 'function') {
+        const label = targetStatus === 'down' ? '🔴 已设为强制标红（点右上角保存可同步云端）'
+            : (targetStatus === 'up' ? '🟢 已设为强制标绿（点右上角保存可同步云端）' : '🤖 已恢复自动探测（点右上角保存可同步云端）');
+        showToast(label);
+    }
 };
 
 /** 前置代理卡片：一键将当前时间填入首次上线时间 */
@@ -1024,16 +1109,19 @@ function cmsSectionProxy(group, sec) {
 
         const qrMode = c.qrMode === 'link' ? 'link' : 'image';
         const override = (c.statusOverride === 'up' || c.statusOverride === 'down') ? c.statusOverride : 'auto';
-        const st = typeof window.getProxyStatus === 'function' ? window.getProxyStatus(c) : { status: 'unknown' };
+        const st = typeof window.getProxyStatus === 'function' ? window.getProxyStatus(c) : { status: 'unknown', dotState: 'unknown' };
+        const pillCls = st.dotState === 'slow' ? 'slow' : st.status;
         const stPillText = st.status === 'up'
-            ? '🟢 当前前台：可用'
-            : (st.status === 'down' ? '🔴 当前前台：不可用' : '⚪ 当前前台：待检测（无遮罩）');
+            ? (st.dotState === 'slow' ? `🟡 当前前台：较慢 (${st.latencySecText || ''})` : `🟢 当前前台：可用 (${st.latencySecText || '优质'})`)
+            : (st.status === 'down'
+                ? '🔴 当前前台：不可用（已加遮罩）'
+                : (st.status === 'expired' ? '⚪ 当前前台：数据过期（超过30分钟）' : '⚪ 当前前台：待检测（无遮罩）'));
 
         return `
         <div class="cms-item ${isVisible ? '' : 'is-hidden'}">
             <div class="cms-item-head">
                 <span class="cms-badge ${cmsCat(c, group).cls}">${esc(c.name || '未命名')}</span>
-                <span class="cms-proxy-status-pill is-${st.status}">${stPillText}${override !== 'auto' ? `（强制 ${override.toUpperCase()}）` : '（自动）'}</span>
+                <span class="cms-proxy-status-pill is-${pillCls}">${stPillText}${override !== 'auto' ? `（手动强制 ${override === 'down' ? '标红' : '标绿'}）` : '（自动探测）'}</span>
                 ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
                 <span class="cms-spacer"></span>
                 ${cmsRenderVisSwitch(group, i, c)}
@@ -1049,7 +1137,7 @@ function cmsSectionProxy(group, sec) {
                         <option value="link" ${qrMode === 'link' ? 'selected' : ''}>🔗 由前置链接自动生成二维码 (link)</option>
                     </select></div>
                 <div class="cms-field"><label>前置链接 (proxyUrl，复制内容 &amp; 链接生码/自动探测源)</label>
-                    <input type="text" placeholder="IP:端口:账号:密码 或 socks5://user:pass@host:port" value="${esc(c.proxyUrl || '')}" oninput="cmsSet('${group}',${i},'proxyUrl',this.value)"></div>
+                    <input type="text" placeholder="IP:端口:账号:密码 或 Egern/socks5/hysteria2 链接" value="${esc(c.proxyUrl || '')}" oninput="cmsSet('${group}',${i},'proxyUrl',this.value)"></div>
                 <div class="cms-field"><label>二维码图片 URL (imgPath，图片模式使用)</label>
                     <input type="text" placeholder="images/proxy1.jpg 或 Drive 链接" value="${esc(c.imgPath || '')}" oninput="cmsSet('${group}',${i},'imgPath',this.value)"></div>
                 <div class="cms-field"><label>首次上线时间 (firstOnlineAt)</label>
@@ -1058,23 +1146,25 @@ function cmsSectionProxy(group, sec) {
                         <button type="button" class="cms-move" style="width:auto; padding:0 10px; white-space:nowrap;" onclick="cmsFillFirstOnlineNow(${i})" title="填入当前时间">当前时间</button>
                     </div>
                 </div>
-                <div class="cms-field"><label>状态覆盖 (statusOverride)</label>
+                <div class="cms-field"><label>强制标红/标绿开关 (manualOverride)</label>
                     <select onchange="cmsSetProxyStatusOverride(${i},this.value)">
-                        <option value="auto" ${override === 'auto' ? 'selected' : ''}>🤖 自动（按云端探测结果）</option>
-                        <option value="up" ${override === 'up' ? 'selected' : ''}>🟢 强制可用 (up)</option>
-                        <option value="down" ${override === 'down' ? 'selected' : ''}>🔴 强制不可用 (down)</option>
+                        <option value="auto" ${override === 'auto' ? 'selected' : ''}>🤖 自动（Google 204 + IG 双目标探测）</option>
+                        <option value="up" ${override === 'up' ? 'selected' : ''}>🟢 强制标绿（忽略探测结果）</option>
+                        <option value="down" ${override === 'down' ? 'selected' : ''}>🔴 强制标红（国内连不上时一键熔断）</option>
                     </select></div>
-                <div class="cms-field"><label>断网时间 (manualDownAt，强制不可用时优先显示)</label>
+                <div class="cms-field"><label>断网时间 (manualDownAt，强制标红时显示)</label>
                     <input type="text" placeholder="YYYY/MM/DD HH:mm:ss" value="${esc(c.manualDownAt || '')}" oninput="cmsSet('${group}',${i},'manualDownAt',this.value)"></div>
+                <div class="cms-field"><label>手动标记备注 (manualNote，展示在前台卡片与遮罩)</label>
+                    <input type="text" placeholder="例如：国内移动/电信连不上前置，正在切换线路" value="${esc(c.manualNote || '')}" oninput="cmsSet('${group}',${i},'manualNote',this.value)"></div>
             </div>
             <div class="cms-item-bar">
                 ${c.imgPath ? `<img class="cms-thumb" src="${esc(c.imgPath)}" alt="预览" onerror="imgFallback(this)">` : ''}
                 <label class="cms-file-btn">📤 上传二维码
                     <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${i},'imgPath')">
                 </label>
-                <button type="button" class="cms-quick-status-btn is-down ${override === 'down' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'down')">🔴 置为不可用（填入当前时间）</button>
-                <button type="button" class="cms-quick-status-btn is-up ${override === 'up' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'up')">🟢 恢复可用</button>
-                <button type="button" class="cms-quick-status-btn is-auto ${override === 'auto' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'auto')">🤖 恢复自动</button>
+                <button type="button" class="cms-quick-status-btn is-down ${override === 'down' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'down')">🔴 一键强制标红</button>
+                <button type="button" class="cms-quick-status-btn is-up ${override === 'up' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'up')">🟢 一键强制标绿</button>
+                <button type="button" class="cms-quick-status-btn is-auto ${override === 'auto' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'auto')">🤖 恢复自动探测</button>
                 <button type="button" class="cms-del" onclick="cmsDel('${group}',${i})">🗑 删除</button>
             </div>
         </div>`;
@@ -1391,7 +1481,9 @@ window.cmsAdd = function (group) {
             visible: true,
             firstOnlineAt: cmsNowChinaStr(),
             statusOverride: 'auto',
-            manualDownAt: ''
+            manualOverride: false,
+            manualDownAt: '',
+            manualNote: ''
         });
     } else if (group === 'music') {
         cmsState[group].push({ name: '新曲目', url: '' });

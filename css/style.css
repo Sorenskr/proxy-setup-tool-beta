@@ -770,12 +770,18 @@ body.dark-mode .cms-vis-switch.is-on .cms-vis-label { color: #3fb950; }
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
     animation: proxyBreathUp 2s infinite ease-in-out;
 }
+.proxy-status-dot.is-slow {
+    background: #f59e0b;
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+    animation: proxyBreathSlow 1.9s infinite ease-in-out;
+}
 .proxy-status-dot.is-down {
     background: #ef4444;
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
     animation: proxyBreathDown 1.6s infinite ease-in-out;
 }
-.proxy-status-dot.is-unknown {
+.proxy-status-dot.is-unknown,
+.proxy-status-dot.is-expired {
     background: #9ca3af;
     box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.25);
 }
@@ -787,6 +793,16 @@ body.dark-mode .cms-vis-switch.is-on .cms-vis-label { color: #3fb950; }
     50% {
         transform: scale(1.18);
         box-shadow: 0 0 0 6px rgba(16, 185, 129, 0), 0 0 14px rgba(16, 185, 129, 0.95);
+    }
+}
+@keyframes proxyBreathSlow {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.65), 0 0 8px rgba(245, 158, 11, 0.8);
+    }
+    50% {
+        transform: scale(1.18);
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0), 0 0 14px rgba(245, 158, 11, 0.95);
     }
 }
 @keyframes proxyBreathDown {
@@ -848,12 +864,30 @@ body.dark-mode .proxy-copy-btn {
 body.dark-mode .proxy-meta-up {
     color: #34d399;
 }
+.proxy-meta-slow {
+    color: #d97706;
+    font-weight: 600;
+}
+body.dark-mode .proxy-meta-slow {
+    color: #fbbf24;
+}
 .proxy-meta-down {
     color: #dc2626;
     font-weight: 600;
 }
 body.dark-mode .proxy-meta-down {
     color: #f87171;
+}
+.proxy-meta-expired {
+    color: #9ca3af;
+    font-weight: 600;
+}
+.proxy-meta-note {
+    color: #6366f1;
+    font-weight: 600;
+}
+body.dark-mode .proxy-meta-note {
+    color: #a5b4fc;
 }
 .proxy-unavail-mask {
     position: absolute;
@@ -926,12 +960,18 @@ body.light-mode .proxy-card.is-unavailable .proxy-meta {
     color: #059669;
     border-color: rgba(16, 185, 129, 0.35);
 }
+.cms-proxy-status-pill.is-slow {
+    background: rgba(245, 158, 11, 0.16);
+    color: #d97706;
+    border-color: rgba(245, 158, 11, 0.4);
+}
 .cms-proxy-status-pill.is-down {
     background: rgba(239, 68, 68, 0.14);
     color: #dc2626;
     border-color: rgba(239, 68, 68, 0.35);
 }
-.cms-proxy-status-pill.is-unknown {
+.cms-proxy-status-pill.is-unknown,
+.cms-proxy-status-pill.is-expired {
     background: rgba(156, 163, 175, 0.16);
     color: var(--text-muted);
 }
