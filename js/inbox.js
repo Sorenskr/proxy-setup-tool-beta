@@ -225,7 +225,7 @@
       '    <div id="mInboxMsg" style="margin-top:14px;font-size:14px;min-height:22px;font-weight:600;line-height:1.45;"></div>',
       '  </div>',
       '  <div style="width:100%;max-width:520px;margin:24px auto 0;text-align:right;">',
-      '    <a href="https://drop.lol" target="_blank" rel="noopener noreferrer" style="font-size:10px;color:#21262d;opacity:0.22;text-decoration:none;user-select:none;">drop.lol</a>',
+      '    <a href="https://drop.lol" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#6e7681;opacity:0.45;text-decoration:none;user-select:none;">drop.lol</a>',
       '  </div>',
       '</div>'
     ].join('');
