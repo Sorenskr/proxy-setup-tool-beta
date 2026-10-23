@@ -129,6 +129,7 @@
             <section class="tab-content active" id="wifi" role="tabpanel" aria-labelledby="tabBtn-wifi">
                 <div class="wifi-section-header">
                     <h2 class="wifi-section-title mb-0" id="wifiSectionTitle">📶 代理 &amp; WiFi</h2>
+                    <button type="button" class="wifi-help-btn" id="secHelpBtn-wifi" onclick="openSectionHelp('wifi')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
                 </div>
                 <p class="wifi-section-tip" id="wifiSectionTip">💡 点击基础网络卡片可一键下发一键配置</p>
 
@@ -137,7 +138,11 @@
 
                 <!-- 软路由分流通道 (由审计后台开关控制显示/隐藏) -->
                 <section id="softRouterSection" style="display: none;">
-                    <h3 class="wifi-section-title mt-35">软路由分流通道 <span class="soft-router-key">(全局密钥: <span id="softRouterKey"></span>)</span></h3>
+                    <div class="wifi-section-header mt-35">
+                        <h3 class="wifi-section-title mb-0"><span id="softRouterSectionTitle">软路由分流通道</span> <span class="soft-router-key">(全局密钥: <span id="softRouterKey"></span>)</span></h3>
+                        <button type="button" class="wifi-help-btn" id="secHelpBtn-softRouter" onclick="openSectionHelp('softRouter')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                    </div>
+                    <p class="wifi-section-tip" id="softRouterSectionTip" style="display:none;"></p>
                     <div class="compact-grid-5">
                         <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-01', 'images/wifi6.jpg')">LINE-01</button>
                         <button type="button" class="mini-btn" onclick="openModalWithImage('软路由Line-02', 'images/wifi7.jpg')">LINE-02</button>
@@ -152,35 +157,28 @@
                     </div>
                 </section>
 
-                <h3 class="wifi-section-title mt-40">前置代理二维码（扫码一键添加）</h3>
-                <div class="proxy-grid" id="proxyGrid"></div>
-                <h3 class="wifi-section-title mt-40">🏢 公司 WiFi 二维码</h3>
-                <div class="company-wifi-gen-card" id="companyWifiGenCard">
-                    <div class="company-wifi-gen-inputs">
-                        <div class="company-wifi-gen-field">
-                            <label for="companyWifiSsidInput">📶 WiFi 名称（SSID）</label>
-                            <input type="text" id="companyWifiSsidInput" placeholder="输入 WiFi 名称，如：Advert">
-                        </div>
-                        <div class="company-wifi-gen-field">
-                            <label for="companyWifiPwdInput">🔑 WiFi 密码</label>
-                            <input type="text" id="companyWifiPwdInput" placeholder="输入 WiFi 密码，如：Jingda2025">
-                        </div>
-                        <button type="button" class="btn-primary company-wifi-gen-btn" onclick="generateCompanyWifiQr()">⚡ 生成二维码</button>
-                    </div>
-                    <div class="company-wifi-gen-result" id="companyWifiGenResult" style="display: none;">
-                        <div class="company-wifi-gen-qr" id="companyWifiGenQrBox" onclick="openCompanyWifiGenModal()" title="点击全屏放大二维码"></div>
-                        <div class="company-wifi-gen-meta">
-                            <div class="company-wifi-gen-title" id="companyWifiGenTitle"></div>
-                            <div class="company-wifi-gen-str" id="companyWifiGenStr"></div>
-                            <div class="company-wifi-gen-hint">📱 手机相机或微信扫码即可一键连 WiFi（点击左侧二维码可放大）</div>
-                        </div>
-                    </div>
+                <div class="wifi-section-header mt-40">
+                    <h3 class="wifi-section-title mb-0" id="proxySectionTitle">前置代理二维码（扫码一键添加）</h3>
+                    <button type="button" class="wifi-help-btn" id="secHelpBtn-proxy" onclick="openSectionHelp('proxy')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
                 </div>
+                <p class="wifi-section-tip" id="proxySectionTip" style="display:none;"></p>
+                <div class="proxy-grid" id="proxyGrid"></div>
+
+                <div class="wifi-section-header mt-40">
+                    <h3 class="wifi-section-title mb-0" id="companySectionTitle">🏢 公司 WiFi 二维码</h3>
+                    <button type="button" class="wifi-help-btn" id="secHelpBtn-company" onclick="openSectionHelp('company')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                </div>
+                <p class="wifi-section-tip" id="companySectionTip" style="display:none;"></p>
                 <div class="company-grid" id="companyGrid"></div>
             </section>
 
             <!-- 模块 2: IP 生成 -->
             <section class="tab-content" id="quick" role="tabpanel" aria-labelledby="tabBtn-quick">
+                <div class="wifi-section-header">
+                    <h2 class="wifi-section-title mb-0" id="quickSectionTitle">⚡ IP 二维码生成</h2>
+                    <button type="button" class="wifi-help-btn" id="secHelpBtn-quick" onclick="openSectionHelp('quick')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                </div>
+                <p class="wifi-section-tip" id="quickSectionTip" style="display:none;"></p>
                 <div class="split-layout">
                     <div class="split-left">
                         <div class="form-card">
@@ -226,7 +224,10 @@
                 <!-- 网络测试模块 -->
                 <div class="net-test-section" id="netTestSection">
                     <div class="net-test-header">
-                        <h3 class="wifi-section-title mb-0">🌐 网络测试</h3>
+                        <div class="wifi-section-header">
+                            <h3 class="wifi-section-title mb-0" id="netTestSectionTitle">🌐 网络测试</h3>
+                            <button type="button" class="wifi-help-btn" id="secHelpBtn-netTest" onclick="openSectionHelp('netTest')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                        </div>
                         <p class="net-test-tip" id="netTestTipText">依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App</p>
                     </div>
                     <div class="net-test-grid" id="netTestGrid"></div>
@@ -235,6 +236,11 @@
 
             <!-- 模块 3: 填写 IP 报表 -->
             <section class="tab-content" id="batch" role="tabpanel" aria-labelledby="tabBtn-batch">
+                <div class="wifi-section-header">
+                    <h2 class="wifi-section-title mb-0" id="batchSectionTitle">📋 填写 IP 报表</h2>
+                    <button type="button" class="wifi-help-btn" id="secHelpBtn-batch" onclick="openSectionHelp('batch')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                </div>
+                <p class="wifi-section-tip" id="batchSectionTip" style="display:none;"></p>
                 <div class="form-card">
                     <div class="form-group">
                         <label for="batchInput">批量灌入节点数据 (自动兼容中文冒号、空格断层等异常排版)</label>
@@ -289,6 +295,11 @@
 
             <!-- 模块 5: 逆向提取与高仿代理检测 -->
             <section class="tab-content" id="single" role="tabpanel" aria-labelledby="tabBtn-single">
+                <div class="wifi-section-header">
+                    <h2 class="wifi-section-title mb-0" id="singleSectionTitle">🔍 IP 提取与代理检测</h2>
+                    <button type="button" class="wifi-help-btn" id="secHelpBtn-single" onclick="openSectionHelp('single')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                </div>
+                <p class="wifi-section-tip" id="singleSectionTip" style="display:none;"></p>
                 <div class="split-layout">
                     <div class="split-left">
                         <div class="form-card">

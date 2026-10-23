@@ -1431,3 +1431,20 @@ body.light-mode .net-test-card {
         height: 136px;
     }
 }
+
+
+/* ================== 统一区块右上角问号按钮与卡片右上角问号适配 ================== */
+.wifi-card {
+    position: relative;
+}
+.wifi-section-header {
+    margin-bottom: 10px;
+}
+.proxy-card.has-help .proxy-copy-btn {
+    right: 38px;
+}
+.proxy-card .card-help-btn,
+.wifi-card .card-help-btn,
+.net-test-card .card-help-btn {
+    z-index: 7;
+}

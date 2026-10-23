@@ -27,15 +27,84 @@
         return base + (extra || '');
     }
 
-    function normalizeCards(list) {
-        if (!Array.isArray(list)) return [];
-        return list.map(c => Object.assign({}, c, { visible: c ? c.visible !== false : true }));
+    function normalizeHelpFields(o) {
+        const helpType = (o.helpType === 'image' || o.helpType === 'text') ? o.helpType : '';
+        return {
+            helpType: helpType,
+            helpImg: String(o.helpImg || '').trim(),
+            helpText: String(o.helpText || '')
+        };
     }
+
+    function normalizeBaseWifiCards(list) {
+        if (!Array.isArray(list)) return [];
+        return list.map((c, idx) => {
+            const o = Object.assign({}, c);
+            const help = normalizeHelpFields(o);
+            const hasWifiStr = Boolean(String(o.wifiString || '').trim());
+            const qrMode = (o.qrMode === 'link' || o.qrMode === 'image')
+                ? o.qrMode
+                : (hasWifiStr ? 'link' : 'image');
+            const name = String(o.name || '').trim();
+            const pwd = String(o.pwd || '').trim();
+            let wifiString = String(o.wifiString || '').trim();
+            if (qrMode === 'link' && !wifiString && name) {
+                wifiString = `WIFI:T:WPA;S:${name};P:${pwd};;`;
+            }
+            return Object.assign({}, o, {
+                id: String(o.id || ('wifi_' + (idx + 1))).trim(),
+                name: name,
+                pwd: pwd,
+                qrMode: qrMode,
+                img: String(o.img || '').trim(),
+                wifiString: qrMode === 'link' ? wifiString : '',
+                visible: o.visible !== false,
+                helpType: help.helpType,
+                helpImg: help.helpImg,
+                helpText: help.helpText
+            });
+        });
+    }
+    window.normalizeBaseWifiCards = normalizeBaseWifiCards;
+
+    function normalizeCompanyWifiCards(list) {
+        if (!Array.isArray(list)) return [];
+        return list.map((c, idx) => {
+            const o = Object.assign({}, c);
+            const help = normalizeHelpFields(o);
+            const hasLink = Boolean(String(o.qrText || o.wifiString || o.ssid || '').trim());
+            const qrMode = (o.qrMode === 'link' || o.qrMode === 'image')
+                ? o.qrMode
+                : ((!o.imgPath && hasLink) ? 'link' : 'image');
+            const name = String(o.name || '').trim();
+            const ssid = String(o.ssid !== undefined ? o.ssid : (qrMode === 'link' ? name : '')).trim();
+            const pwd = String(o.pwd || '').trim();
+            let qrText = String(o.qrText || o.wifiString || '').trim();
+            if (qrMode === 'link' && !qrText && ssid) {
+                qrText = `WIFI:T:WPA;S:${ssid};P:${pwd};;`;
+            }
+            return {
+                id: String(o.id || ('company_' + (idx + 1))).trim(),
+                name: name || ssid || ('公司WiFi ' + (idx + 1)),
+                qrMode: qrMode,
+                imgPath: String(o.imgPath || '').trim(),
+                ssid: ssid,
+                pwd: pwd,
+                qrText: qrText,
+                visible: o.visible !== false,
+                helpType: help.helpType,
+                helpImg: help.helpImg,
+                helpText: help.helpText
+            };
+        });
+    }
+    window.normalizeCompanyWifiCards = normalizeCompanyWifiCards;
 
     function normalizeProxyCards(list) {
         if (!Array.isArray(list)) return [];
         return list.map((c, idx) => {
             const o = Object.assign({}, c);
+            const help = normalizeHelpFields(o);
             const statusOverride = (o.statusOverride === 'up' || o.statusOverride === 'down') ? o.statusOverride : 'auto';
             return {
                 id: String(o.id || ('proxy_' + (idx + 1))).trim(),
@@ -48,42 +117,145 @@
                 statusOverride: statusOverride,
                 manualOverride: statusOverride !== 'auto' || Boolean(o.manualOverride),
                 manualDownAt: String(o.manualDownAt || '').trim(),
-                manualNote: String(o.manualNote || '').trim()
+                manualNote: String(o.manualNote || '').trim(),
+                helpType: help.helpType,
+                helpImg: help.helpImg,
+                helpText: help.helpText
             };
         });
     }
     window.normalizeProxyCards = normalizeProxyCards;
 
     const DEFAULT_NET_TEST_LIST = [
-        { id: 'net_dnsleak', name: 'DNSLeakTest', url: 'dnsleaktest.com', desc: '测 IP DNS 泄漏', visible: true },
-        { id: 'net_whoer',   name: 'Whoer',       url: 'whoer.com',       desc: '综合匿名度评分，看 IP 干不干净、WebRTC/DNS 泄不泄漏', visible: true },
-        { id: 'net_ping0',   name: 'Ping0',       url: 'ping0.cc',        desc: '测 IP 纯净度/风险分', visible: true },
-        { id: 'net_ipinfo',  name: 'IPinfo',      url: 'ipinfo.io',       desc: '查 IP 地理位置、ASN、时区、运营商', visible: true }
+        { id: 'net_dnsleak', name: 'DNSLeakTest', qrMode: 'link', url: 'dnsleaktest.com', imgPath: '', desc: '测 IP DNS 泄漏', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'net_whoer',   name: 'Whoer',       qrMode: 'link', url: 'whoer.com',       imgPath: '', desc: '综合匿名度评分，看 IP 干不干净、WebRTC/DNS 泄不泄漏', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'net_ping0',   name: 'Ping0',       qrMode: 'link', url: 'ping0.cc',        imgPath: '', desc: '测 IP 纯净度/风险分', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'net_ipinfo',  name: 'IPinfo',      qrMode: 'link', url: 'ipinfo.io',       imgPath: '', desc: '查 IP 地理位置、ASN、时区、运营商', visible: true, helpType: '', helpImg: '', helpText: '' }
     ];
 
     function normalizeNetTestCards(list) {
         if (!Array.isArray(list)) return [];
         return list.map((c, idx) => {
             const o = Object.assign({}, c);
+            const help = normalizeHelpFields(o);
+            const qrMode = o.qrMode === 'image' ? 'image' : 'link';
             return {
                 id: String(o.id || ('net_' + (idx + 1))).trim(),
                 name: String(o.name || '').trim(),
+                qrMode: qrMode,
                 url: String(o.url || '').trim(),
+                imgPath: String(o.imgPath || '').trim(),
                 desc: String(o.desc || '').trim(),
-                visible: o.visible !== false
+                visible: o.visible !== false,
+                helpType: help.helpType,
+                helpImg: help.helpImg,
+                helpText: help.helpText
             };
         });
     }
     window.normalizeNetTestCards = normalizeNetTestCards;
     window.netTestList = normalizeNetTestCards(DEFAULT_NET_TEST_LIST);
 
+    const DEFAULT_SECTION_BLOCKS = {
+        wifi: {
+            title: '📶 代理 & WiFi',
+            tip: '💡 点击基础网络卡片可一键下发一键配置',
+            helpType: 'image',
+            helpImg: 'images/@Ads tutorial.jpg',
+            helpText: '# 📶 代理 & WiFi 使用说明\n\n💡 点击基础网络卡片可一键下发一键配置'
+        },
+        softRouter: {
+            title: '软路由分流通道',
+            tip: '',
+            helpType: '',
+            helpImg: '',
+            helpText: '# 软路由分流通道说明\n\n点击对应线路按钮可弹出软路由连接二维码。'
+        },
+        proxy: {
+            title: '前置代理二维码（扫码一键添加）',
+            tip: '',
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# 前置代理二维码使用说明\n\n- 使用 iPhone **Egern** 或 Android **v2rayNG** 扫描下方前置代理二维码即可一键导入。\n- 🟢 绿点：连通优质（<1.5s）\n- 🟡 黄点：可用但较慢（1.5~3s）\n- 🔴 红点：当前线路不可用'
+        },
+        company: {
+            title: '🏢 公司 WiFi 二维码',
+            tip: '',
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# 🏢 公司 WiFi 二维码说明\n\n打开手机系统相机或微信扫一扫，对准对应办公区的二维码即可一键连接公司 WiFi（点击卡片可放大）。'
+        },
+        quick: {
+            title: '⚡ IP 二维码生成',
+            tip: '',
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# ⚡ IP 二维码生成说明\n\n1. 填写代理名称前缀与手机盘点编码。\n2. 粘贴 SOCKS5 节点信息（支持空格、中文冒号、换行自动清洗）。\n3. 点击生成按钮即可在右侧生成 **Egern (iOS)** 或 **v2rayNG (Android)** 专属二维码。'
+        },
+        netTest: {
+            title: '🌐 网络测试',
+            tip: '依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App',
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# 🌐 网络测试说明\n\n依次点击或手机扫码打开下方检测网站，确认当前设备的出口 IP 已变为目标代理 IP：\n\n- **DNSLeakTest**：检测 DNS 是否泄漏\n- **Whoer**：检查伪装度评分及 WebRTC/时区一致性\n- **Ping0**：检测 IP 纯净度与风险值\n- **IPinfo**：核对 IP 地理位置、ASN 与运营商\n\n:::success 建议标准\n建议纯净度/伪装度 ≥ 90% 后再打开社媒 App。\n:::'
+        },
+        batch: {
+            title: '📋 填写 IP 报表',
+            tip: '',
+            helpType: '',
+            helpImg: '',
+            helpText: '# 📋 填写 IP 报表说明\n\n批量粘贴节点后点击「⚡ 生成并并发测绘」，系统将自动清洗格式并查询国家/州省，支持一键复制直接粘贴到 Excel。'
+        },
+        single: {
+            title: '🔍 IP 提取与代理检测',
+            tip: '',
+            helpType: '',
+            helpImg: '',
+            helpText: '# 🔍 IP 提取与代理检测说明\n\n粘贴 Egern 链接或异常格式的 IP 文本，一键还原明文并检测代理连通性与地区。'
+        }
+    };
+    window.DEFAULT_SECTION_BLOCKS = DEFAULT_SECTION_BLOCKS;
+
+    function normalizeSectionBlocks(rawBlocks, legacyObj) {
+        const out = {};
+        const src = (rawBlocks && typeof rawBlocks === 'object') ? rawBlocks : {};
+        Object.keys(DEFAULT_SECTION_BLOCKS).forEach(k => {
+            const def = DEFAULT_SECTION_BLOCKS[k];
+            const b = (src[k] && typeof src[k] === 'object') ? src[k] : {};
+            const helpType = (b.helpType === 'image' || b.helpType === 'text' || b.helpType === '')
+                ? b.helpType
+                : def.helpType;
+            out[k] = {
+                title: typeof b.title === 'string' ? b.title : def.title,
+                tip: typeof b.tip === 'string' ? b.tip : def.tip,
+                helpType: helpType,
+                helpImg: typeof b.helpImg === 'string' ? b.helpImg : def.helpImg,
+                helpText: typeof b.helpText === 'string' ? b.helpText : def.helpText
+            };
+        });
+        if (legacyObj && typeof legacyObj === 'object') {
+            if (!src.wifi) {
+                if (typeof legacyObj.wifiTitle === 'string') out.wifi.title = legacyObj.wifiTitle;
+                if (typeof legacyObj.wifiTip === 'string') out.wifi.tip = legacyObj.wifiTip;
+            }
+            if (!src.netTest) {
+                if (typeof legacyObj.netTestTip === 'string') out.netTest.tip = legacyObj.netTestTip;
+            }
+        }
+        return out;
+    }
+    window.normalizeSectionBlocks = normalizeSectionBlocks;
+
     /** 以 main.js 中的硬编码数据作为默认值，保证未配置后台时功能不变 */
     function defaultContent() {
+        const secBlocks = normalizeSectionBlocks(null, null);
         return {
             version: 1,
-            wifiTitle: '📶 代理 & WiFi',
-            wifiTip: '💡 点击基础网络卡片可一键下发一键配置',
-            baseWifiCards: normalizeCards((typeof baseWifiCards !== 'undefined' ? baseWifiCards : []).map(c => {
+            wifiTitle: secBlocks.wifi.title,
+            wifiTip: secBlocks.wifi.tip,
+            netTestTip: secBlocks.netTest.tip,
+            sectionBlocks: secBlocks,
+            baseWifiCards: normalizeBaseWifiCards((typeof baseWifiCards !== 'undefined' ? baseWifiCards : []).map(c => {
                 const o = Object.assign({}, c);
                 // @Ads 默认带图片教程（后台可改/可删）
                 if (o.id === 'ads') {
@@ -93,12 +265,7 @@
                 return o;
             })),
             proxyList: normalizeProxyCards(typeof proxyList !== 'undefined' ? proxyList : []),
-            companyWifiList: normalizeCards(typeof companyWifiList !== 'undefined' ? companyWifiList : []),
-            companyWifiDefault: {
-                ssid: '',
-                pwd: ''
-            },
-            netTestTip: '依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App',
+            companyWifiList: normalizeCompanyWifiCards(typeof companyWifiList !== 'undefined' ? companyWifiList : []),
             netTestList: normalizeNetTestCards(DEFAULT_NET_TEST_LIST),
             music: (typeof musicFiles !== 'undefined' ? musicFiles : []).map(n => ({
                 name: String(n).replace(/\.[^/.]+$/, ''),
@@ -122,21 +289,18 @@
     function merge(defaults, remote) {
         const out = Object.assign({}, defaults);
         if (!remote || typeof remote !== 'object') return out;
-        ['baseWifiCards', 'companyWifiList'].forEach(k => {
-            if (Array.isArray(remote[k])) out[k] = normalizeCards(remote[k]);
-        });
+        if (Array.isArray(remote.baseWifiCards)) out.baseWifiCards = normalizeBaseWifiCards(remote.baseWifiCards);
+        if (Array.isArray(remote.companyWifiList)) out.companyWifiList = normalizeCompanyWifiCards(remote.companyWifiList);
         if (Array.isArray(remote.proxyList)) out.proxyList = normalizeProxyCards(remote.proxyList);
         if (Array.isArray(remote.netTestList)) out.netTestList = normalizeNetTestCards(remote.netTestList);
-        if (remote.companyWifiDefault && typeof remote.companyWifiDefault === 'object') {
-            out.companyWifiDefault = {
-                ssid: String(remote.companyWifiDefault.ssid || ''),
-                pwd: String(remote.companyWifiDefault.pwd || '')
-            };
-        }
         if (Array.isArray(remote.music)) out.music = remote.music;
         ['wifiTitle', 'wifiTip', 'netTestTip'].forEach(k => {
             if (typeof remote[k] === 'string') out[k] = remote[k];
         });
+        out.sectionBlocks = normalizeSectionBlocks(remote.sectionBlocks, remote);
+        out.wifiTitle = out.sectionBlocks.wifi.title;
+        out.wifiTip = out.sectionBlocks.wifi.tip;
+        out.netTestTip = out.sectionBlocks.netTest.tip;
         if (typeof remote.musicEnabled === 'boolean') out.musicEnabled = remote.musicEnabled;
         if (remote.background && typeof remote.background === 'object') {
             out.background = Object.assign({}, defaults.background, remote.background);
@@ -279,13 +443,49 @@
         }
     };
 
+    /** 统一打开任意问号帮助浮层（支持图片模式或文字/Markdown 模式） */
+    window.openHelpPopup = function (helpObj) {
+        if (!helpObj || typeof helpObj !== 'object') return;
+        const type = helpObj.helpType;
+        if (type === 'image' && String(helpObj.helpImg || '').trim()) {
+            const modal = document.getElementById('wifiGuideModal');
+            const img = document.getElementById('wifiGuideImg');
+            if (img) img.src = String(helpObj.helpImg).trim();
+            if (modal) modal.style.display = 'flex';
+        } else if (type === 'text' && String(helpObj.helpText || '').trim()) {
+            const modal = document.getElementById('cardHelpModal');
+            const body = document.getElementById('modalTextBody');
+            const raw = String(helpObj.helpText);
+            if (body) body.innerHTML = window.renderGuideContent ? window.renderGuideContent(raw) : raw;
+            if (modal) modal.style.display = 'flex';
+        }
+    };
+
+    /** 打开区块标题右上角「?」帮助说明 */
+    window.openSectionHelp = function (secKey) {
+        const d = window.getSiteContent ? window.getSiteContent() : (window.SiteContent && window.SiteContent.data);
+        const blocks = (d && d.sectionBlocks) || DEFAULT_SECTION_BLOCKS;
+        const block = blocks && blocks[secKey];
+        if (!block) return;
+        window.openHelpPopup(block);
+    };
+
+    /** 打开任意分组卡片右上角「?」帮助说明 */
+    window.openAnyCardHelp = function (group, index) {
+        const d = window.getSiteContent ? window.getSiteContent() : (window.SiteContent && window.SiteContent.data);
+        const list = (d && Array.isArray(d[group])) ? d[group] : (window[group] || []);
+        const card = list && list[index];
+        if (!card) return;
+        window.openHelpPopup(card);
+    };
+
     /** 把远程内容写回运行时的全局变量并触发重绘 */
     window.applySiteContent = function () {
         const d = window.SiteContent.data;
         if (!d) return;
 
         if (Array.isArray(d.baseWifiCards)) {
-            d.baseWifiCards = normalizeCards(d.baseWifiCards);
+            d.baseWifiCards = normalizeBaseWifiCards(d.baseWifiCards);
             baseWifiCards = d.baseWifiCards;
             try {
                 const visibleIds = d.baseWifiCards.filter(c => c && c.visible !== false).map(c => c.id);
@@ -297,16 +497,17 @@
             proxyList = d.proxyList;
         }
         if (Array.isArray(d.companyWifiList)) {
-            d.companyWifiList = normalizeCards(d.companyWifiList);
+            d.companyWifiList = normalizeCompanyWifiCards(d.companyWifiList);
             companyWifiList = d.companyWifiList;
         }
         if (Array.isArray(d.netTestList)) {
             d.netTestList = normalizeNetTestCards(d.netTestList);
             window.netTestList = d.netTestList;
         }
-        if (!d.companyWifiDefault || typeof d.companyWifiDefault !== 'object') {
-            d.companyWifiDefault = { ssid: '', pwd: '' };
-        }
+        d.sectionBlocks = normalizeSectionBlocks(d.sectionBlocks, d);
+        d.wifiTitle = d.sectionBlocks.wifi.title;
+        d.wifiTip = d.sectionBlocks.wifi.tip;
+        d.netTestTip = d.sectionBlocks.netTest.tip;
 
         window.BG_CONFIG = Object.assign(
             { mode: 'auto', dayUrl: '', nightUrl: '', particles: true, videoEnabled: false, dayVideoUrl: '', nightVideoUrl: '' },
@@ -314,19 +515,36 @@
         );
         window.applyBgVideo();
 
-        // 版面文案（后台可改）
-        const titleEl = document.getElementById('wifiSectionTitle');
-        if (titleEl && typeof d.wifiTitle === 'string' && d.wifiTitle.trim()) titleEl.textContent = d.wifiTitle;
-        const tipEl = document.getElementById('wifiSectionTip');
-        if (tipEl && typeof d.wifiTip === 'string') {
-            tipEl.textContent = d.wifiTip;
-            tipEl.style.display = d.wifiTip.trim() ? '' : 'none';
-        }
-        const netTestTipEl = document.getElementById('netTestTipText');
-        if (netTestTipEl && typeof d.netTestTip === 'string') {
-            netTestTipEl.textContent = d.netTestTip;
-            netTestTipEl.style.display = d.netTestTip.trim() ? '' : 'none';
-        }
+        // 统一更新所有区块标题、顶部提示语 & 右上角圆形问号按钮
+        const secMap = {
+            wifi:       { titleId: 'wifiSectionTitle',       tipId: 'wifiSectionTip',       btnId: 'secHelpBtn-wifi' },
+            softRouter: { titleId: 'softRouterSectionTitle', tipId: 'softRouterSectionTip', btnId: 'secHelpBtn-softRouter' },
+            proxy:      { titleId: 'proxySectionTitle',      tipId: 'proxySectionTip',      btnId: 'secHelpBtn-proxy' },
+            company:    { titleId: 'companySectionTitle',    tipId: 'companySectionTip',    btnId: 'secHelpBtn-company' },
+            quick:      { titleId: 'quickSectionTitle',      tipId: 'quickSectionTip',      btnId: 'secHelpBtn-quick' },
+            netTest:    { titleId: 'netTestSectionTitle',    tipId: 'netTestTipText',       btnId: 'secHelpBtn-netTest' },
+            batch:      { titleId: 'batchSectionTitle',      tipId: 'batchSectionTip',      btnId: 'secHelpBtn-batch' },
+            single:     { titleId: 'singleSectionTitle',     tipId: 'singleSectionTip',     btnId: 'secHelpBtn-single' }
+        };
+        Object.keys(secMap).forEach(secKey => {
+            const cfg = secMap[secKey];
+            const block = (d.sectionBlocks && d.sectionBlocks[secKey]) || DEFAULT_SECTION_BLOCKS[secKey] || {};
+            const titleEl = document.getElementById(cfg.titleId);
+            if (titleEl && typeof block.title === 'string' && block.title.trim()) {
+                titleEl.textContent = block.title;
+            }
+            const tipEl = document.getElementById(cfg.tipId);
+            if (tipEl && typeof block.tip === 'string') {
+                tipEl.textContent = block.tip;
+                tipEl.style.display = block.tip.trim() ? '' : 'none';
+            }
+            const btnEl = document.getElementById(cfg.btnId);
+            if (btnEl) {
+                const showHelp = (block.helpType === 'image' && String(block.helpImg || '').trim())
+                    || (block.helpType === 'text' && String(block.helpText || '').trim());
+                btnEl.style.display = showHelp ? 'inline-flex' : 'none';
+            }
+        });
 
         // 卡片动效开关
         const fx = d.effects || {};
@@ -345,7 +563,6 @@
         if (player) player.style.display = d.musicEnabled === false ? 'none' : '';
 
         if (typeof renderStaticCards === 'function') renderStaticCards();
-        if (typeof window.syncCompanyWifiDefaults === 'function') window.syncCompanyWifiDefaults();
         if (typeof window.renderNetTestCards === 'function') window.renderNetTestCards();
         if (typeof applyWifiLayoutConfig === 'function') applyWifiLayoutConfig();
         if (typeof window.createParticles === 'function') window.createParticles();

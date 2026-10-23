@@ -260,6 +260,48 @@ window.updateProxyCardsInPlace = function () {
  * 2. 明确 down（或 >3s 超时） -> 呼吸红点 + 毛玻璃遮罩「暂时无法使用，请联系负责人」+「点击临时查看」按钮
  * 3. up (<1.5s) -> 呼吸绿点；slow (1.5~3s) -> 呼吸黄点（显示"较慢"），均无遮罩
  */
+function getCompanyCardLinkText(item) {
+    if (!item || typeof item !== 'object') return '';
+    const custom = String(item.qrText || item.wifiString || '').trim();
+    if (custom) return custom;
+    const ssid = String(item.ssid || item.name || '').trim();
+    if (!ssid) return '';
+    return `WIFI:T:WPA;S:${ssid};P:${String(item.pwd || '').trim()};;`;
+}
+
+window.handleCompanyCardClick = function (index) {
+    const list = typeof companyWifiList !== 'undefined' && Array.isArray(companyWifiList) ? companyWifiList : [];
+    const item = list[index];
+    if (!item) return;
+    if (item.qrMode === 'link') {
+        const linkText = getCompanyCardLinkText(item);
+        if (!linkText) return;
+        if (/^WIFI:/i.test(linkText) || String(item.pwd || '').trim() || String(item.ssid || '').trim()) {
+            if (typeof openModalWithWifiQr === 'function') {
+                openModalWithWifiQr(item.name || item.ssid || '公司 WiFi', linkText, item.pwd || '');
+                return;
+            }
+        }
+        if (typeof waitForQRCode === 'function' && typeof openModalWithImage === 'function') {
+            waitForQRCode(() => {
+                QRCode.toDataURL(linkText, { width: 320, margin: 2 }, (err, dataUrl) => {
+                    if (!err && dataUrl) openModalWithImage(item.name || '二维码', dataUrl);
+                });
+            });
+        }
+        return;
+    }
+    if (typeof openModalWithImage === 'function') {
+        openModalWithImage(item.name || '公司 WiFi', item.imgPath || '');
+    }
+};
+
+function hasCardHelpEnabled(item) {
+    if (!item || typeof item !== 'object') return false;
+    return (item.helpType === 'image' && Boolean(String(item.helpImg || '').trim()))
+        || (item.helpType === 'text' && Boolean(String(item.helpText || '').trim()));
+}
+
 window.renderStaticCards = function () {
     const proxyGrid = document.getElementById('proxyGrid');
     const companyGrid = document.getElementById('companyGrid');
@@ -279,15 +321,17 @@ window.renderStaticCards = function () {
         const initImgSrc = isLinkMode ? '' : esc(item.imgPath || '');
         const dotCls = st.dotClass || `is-${st.dotState || st.status}`;
         const noteText = String(item.manualNote || st.manualNote || '').trim();
+        const showHelp = hasCardHelpEnabled(item);
 
         const cardEl = document.createElement('div');
-        cardEl.className = `wifi-card proxy-card ${isMasked ? 'is-unavailable' : 'is-available'}`;
+        cardEl.className = `wifi-card proxy-card ${isMasked ? 'is-unavailable' : 'is-available'}${showHelp ? ' has-help' : ''}`;
         cardEl.setAttribute('data-proxy-idx', String(idx));
         cardEl.setAttribute('data-proxy-id', String(item.id || ''));
         cardEl.onclick = () => window.handleProxyCardClick(idx);
 
         cardEl.innerHTML = `
             <button type="button" class="proxy-copy-btn" style="${isMasked ? 'display:none;' : ''}" onclick="copyProxyUrl(${idx}, event)" title="复制前置代理链接">复制</button>
+            ${showHelp ? `<button type="button" class="card-help-btn" title="查看说明" aria-label="查看说明" onclick="event.stopPropagation(); openAnyCardHelp('proxyList', ${idx})">?</button>` : ''}
             <div class="wifi-qr-box">
                 <img src="${initImgSrc}" class="qr-img" data-qr-idx="${idx}" alt="${esc(item.name)}" ${isLinkMode ? '' : 'onerror="imgFallback(this)"'}>
             </div>
@@ -325,102 +369,46 @@ window.renderStaticCards = function () {
         }
     });
 
-    (typeof companyWifiList !== 'undefined' ? companyWifiList : []).forEach(item => {
+    const cList = typeof companyWifiList !== 'undefined' && Array.isArray(companyWifiList) ? companyWifiList : [];
+    cList.forEach((item, idx) => {
         if (!item || item.visible === false) return;
-        if (companyGrid) {
-            companyGrid.innerHTML += `<div class="wifi-card" onclick="openModalWithImage('${esc(item.name)}', '${esc(item.imgPath)}')"><div class="wifi-qr-box"><img src="${esc(item.imgPath)}" class="qr-img" onerror="imgFallback(this)"></div><div class="wifi-card-title">${esc(item.name)}</div></div>`;
+        if (!companyGrid) return;
+
+        const isLinkMode = item.qrMode === 'link';
+        const initImgSrc = isLinkMode ? '' : esc(item.imgPath || '');
+        const showHelp = hasCardHelpEnabled(item);
+
+        const cardEl = document.createElement('div');
+        cardEl.className = 'wifi-card';
+        cardEl.onclick = () => window.handleCompanyCardClick(idx);
+        cardEl.innerHTML = `
+            ${showHelp ? `<button type="button" class="card-help-btn" title="查看说明" aria-label="查看说明" onclick="event.stopPropagation(); openAnyCardHelp('companyWifiList', ${idx})">?</button>` : ''}
+            <div class="wifi-qr-box">
+                <img src="${initImgSrc}" class="qr-img" data-company-qr-idx="${idx}" alt="${esc(item.name)}" ${isLinkMode ? '' : 'onerror="imgFallback(this)"'}>
+            </div>
+            <div class="wifi-card-title">${esc(item.name)}</div>
+        `;
+        companyGrid.appendChild(cardEl);
+
+        if (isLinkMode) {
+            const imgEl = cardEl.querySelector('img.qr-img');
+            const linkText = getCompanyCardLinkText(item);
+            if (linkText && typeof waitForQRCode === 'function') {
+                waitForQRCode(() => {
+                    QRCode.toDataURL(linkText, { width: 280, margin: 2 }, (err, dataUrl) => {
+                        if (!imgEl) return;
+                        if (!err && dataUrl) {
+                            imgEl.src = dataUrl;
+                        } else if (typeof imgFallback === 'function') {
+                            imgFallback(imgEl);
+                        }
+                    });
+                });
+            } else if (imgEl && typeof imgFallback === 'function') {
+                imgFallback(imgEl);
+            }
         }
     });
-};
-
-/* ---------------- 公司 WiFi 二维码自动生成器（WIFI:T:WPA;S:名称;P:密码;;） ---------------- */
-
-window.__lastCompanyWifiQr = null;
-
-window.syncCompanyWifiDefaults = function () {
-    const ssidEl = document.getElementById('companyWifiSsidInput');
-    const pwdEl = document.getElementById('companyWifiPwdInput');
-    if (!ssidEl || !pwdEl) return;
-
-    if (!ssidEl.dataset.boundInput) {
-        ssidEl.dataset.boundInput = '1';
-        ssidEl.addEventListener('input', () => { ssidEl.dataset.userEdited = '1'; });
-        pwdEl.addEventListener('input', () => { pwdEl.dataset.userEdited = '1'; });
-        const onEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); window.generateCompanyWifiQr(); } };
-        ssidEl.addEventListener('keydown', onEnter);
-        pwdEl.addEventListener('keydown', onEnter);
-    }
-
-    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
-    const def = (content && content.companyWifiDefault) || {};
-    const defSsid = String(def.ssid || '').trim();
-    const defPwd = String(def.pwd || '').trim();
-
-    if (!ssidEl.dataset.userEdited) {
-        ssidEl.value = defSsid;
-    }
-    if (!pwdEl.dataset.userEdited) {
-        pwdEl.value = defPwd;
-    }
-
-    if (ssidEl.value.trim()) {
-        window.generateCompanyWifiQr(true);
-    }
-};
-
-window.generateCompanyWifiQr = function (silent) {
-    const ssidEl = document.getElementById('companyWifiSsidInput');
-    const pwdEl = document.getElementById('companyWifiPwdInput');
-    const resBox = document.getElementById('companyWifiGenResult');
-    const qrBox = document.getElementById('companyWifiGenQrBox');
-    const titleEl = document.getElementById('companyWifiGenTitle');
-    const strEl = document.getElementById('companyWifiGenStr');
-    if (!ssidEl || !pwdEl || !resBox || !qrBox) return;
-
-    const ssid = ssidEl.value.trim();
-    const pwd = pwdEl.value.trim();
-    if (!ssid) {
-        resBox.style.display = 'none';
-        if (!silent && typeof showToast === 'function') {
-            showToast('⚠️ 请输入公司 WiFi 名称（SSID）');
-        }
-        return;
-    }
-
-    const wifiString = `WIFI:T:WPA;S:${ssid};P:${pwd};;`;
-    window.__lastCompanyWifiQr = { ssid, pwd, wifiString };
-
-    resBox.style.display = 'flex';
-    if (titleEl) {
-        titleEl.innerHTML = `<span class="company-wifi-gen-ssid">📶 ${esc(ssid)}</span>${pwd ? `<span class="company-wifi-gen-pwd">🔑 密码：<code>${esc(pwd)}</code></span>` : '<span class="company-wifi-gen-pwd">🔓 免密连接</span>'}`;
-    }
-    if (strEl) {
-        strEl.textContent = wifiString;
-    }
-
-    qrBox.innerHTML = '<div style="padding:18px;font-size:12px;color:var(--text-muted);">生成中…</div>';
-    if (typeof waitForQRCode === 'function') {
-        waitForQRCode(() => {
-            QRCode.toDataURL(wifiString, { width: 240, margin: 2 }, (err, dataUrl) => {
-                if (err || !dataUrl) {
-                    qrBox.innerHTML = '<div style="color:#ff5555;font-size:12px;padding:12px;">生成失败</div>';
-                    return;
-                }
-                qrBox.innerHTML = `<img src="${dataUrl}" alt="${esc(ssid)} WiFi 二维码">`;
-                if (!silent && typeof showToast === 'function') {
-                    showToast('✅ 已生成公司 WiFi 二维码，可扫码直连');
-                }
-            });
-        });
-    }
-};
-
-window.openCompanyWifiGenModal = function () {
-    const cur = window.__lastCompanyWifiQr;
-    if (!cur || !cur.ssid) return;
-    if (typeof openModalWithWifiQr === 'function') {
-        openModalWithWifiQr(cur.ssid, cur.wifiString, cur.pwd);
-    }
 };
 
 /* ---------------- ⚡ IP 生成页底部「网络测试」卡片渲染与原地缩放交互 ---------------- */
@@ -435,14 +423,9 @@ function normalizeNetTestUrlPair(rawUrl) {
 
 window.renderNetTestCards = function () {
     const grid = document.getElementById('netTestGrid');
-    const tipEl = document.getElementById('netTestTipText');
-    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
-    if (tipEl && content && typeof content.netTestTip === 'string') {
-        tipEl.textContent = content.netTestTip;
-        tipEl.style.display = content.netTestTip.trim() ? '' : 'none';
-    }
     if (!grid) return;
 
+    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
     const list = (content && Array.isArray(content.netTestList))
         ? content.netTestList
         : (Array.isArray(window.netTestList) ? window.netTestList : []);
@@ -451,20 +434,23 @@ window.renderNetTestCards = function () {
     list.forEach((item, idx) => {
         if (!item || item.visible === false) return;
         const { shortUrl, fullUrl } = normalizeNetTestUrlPair(item.url);
-        if (!shortUrl) return;
+        const isImgMode = item.qrMode === 'image' && Boolean(String(item.imgPath || '').trim());
+        if (!shortUrl && !isImgMode) return;
+        const showHelp = hasCardHelpEnabled(item);
 
         const cardEl = document.createElement('div');
         cardEl.className = 'net-test-card';
         cardEl.setAttribute('data-net-idx', String(idx));
 
         cardEl.innerHTML = `
-            <div class="net-test-name">${esc(item.name || shortUrl)}</div>
-            <a class="net-test-url" href="${esc(fullUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="点击直达 ${esc(fullUrl)}">
+            ${showHelp ? `<button type="button" class="card-help-btn" title="查看说明" aria-label="查看说明" onclick="event.stopPropagation(); openAnyCardHelp('netTestList', ${idx})">?</button>` : ''}
+            <div class="net-test-name">${esc(item.name || shortUrl || '检测站点')}</div>
+            ${shortUrl ? `<a class="net-test-url" href="${esc(fullUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="点击直达 ${esc(fullUrl)}">
                 <span class="net-url-short">${esc(shortUrl)}</span>
                 <span class="net-url-full">${esc(fullUrl)}</span>
-            </a>
+            </a>` : ''}
             <div class="net-test-qr-wrap" title="悬停或点击原地放大二维码">
-                <img class="net-test-qr-img" data-net-qr="${idx}" alt="${esc(item.name)} 二维码">
+                <img class="net-test-qr-img" data-net-qr="${idx}" src="${isImgMode ? esc(item.imgPath) : ''}" alt="${esc(item.name)} 二维码">
             </div>
             <div class="net-test-desc">${esc(item.desc || '')}</div>
         `;
@@ -482,9 +468,8 @@ window.renderNetTestCards = function () {
 
         // 点击小二维码或卡片空白处：原地切换展开 / 收起（不新开窗口）
         cardEl.addEventListener('click', (e) => {
-            if (e.target && e.target.closest && e.target.closest('a.net-test-url')) return;
+            if (e.target && e.target.closest && (e.target.closest('a.net-test-url') || e.target.closest('.card-help-btn'))) return;
             const now = Date.now();
-            // 若刚刚因鼠标移入自动展开（<240ms 内立即点击），保持展开态；再次点击则收起恢复小卡片
             if (cardEl.classList.contains('is-expanded') && cardEl._hoverEnterAt && (now - cardEl._hoverEnterAt < 240)) {
                 cardEl._hoverEnterAt = 0;
                 return;
@@ -495,7 +480,7 @@ window.renderNetTestCards = function () {
 
         grid.appendChild(cardEl);
 
-        if (typeof waitForQRCode === 'function') {
+        if (!isImgMode && fullUrl && typeof waitForQRCode === 'function') {
             waitForQRCode(() => {
                 const imgEl = cardEl.querySelector('img.net-test-qr-img');
                 QRCode.toDataURL(fullUrl, { width: 220, margin: 1 }, (err, dataUrl) => {
@@ -524,14 +509,16 @@ window.applyWifiLayoutConfig = function () {
     if (!container) return;
     container.innerHTML = '';
 
-    (typeof baseWifiCards !== 'undefined' ? baseWifiCards : []).forEach(card => {
+    (typeof baseWifiCards !== 'undefined' ? baseWifiCards : []).forEach((card, idx) => {
         if (!card || card.visible === false) return;
         const cardEl = document.createElement('div');
         cardEl.className = `compact-card ${card.danger ? 'danger-card' : ''} ${card.fx && card.fx !== 'default' ? 'fx-' + card.fx : ''}`;
 
         cardEl.onclick = () => {
-            if (card.wifiString) {
-                openModalWithWifiQr(card.name, card.wifiString, card.pwd);
+            const useLink = card.qrMode === 'link' || (card.qrMode !== 'image' && Boolean(String(card.wifiString || '').trim()));
+            if (useLink) {
+                const targetWifiStr = String(card.wifiString || '').trim() || `WIFI:T:WPA;S:${card.name || ''};P:${card.pwd || ''};;`;
+                openModalWithWifiQr(card.name, targetWifiStr, card.pwd);
             } else {
                 openModalWithImage(card.name, card.img);
             }
@@ -540,12 +527,13 @@ window.applyWifiLayoutConfig = function () {
         const tagHtml = card.tag ? `<div class="card-tag">${card.tag}</div>` : '';
         const nameClass = card.large ? 'card-name card-name-large' : 'card-name';
         const pwdClass = card.danger ? 'card-pwd pulse-blue' : 'card-pwd';
+        const showHelp = hasCardHelpEnabled(card);
 
         cardEl.innerHTML = `
             <div class="${nameClass}">${card.name}</div>
             <div class="${pwdClass}">${card.pwd}</div>${tagHtml}
-            ${(card.helpType === 'image' && card.helpImg) || (card.helpType === 'text' && card.helpText)
-                ? `<button type="button" class="card-help-btn" title="查看使用说明" aria-label="查看使用说明" onclick="event.stopPropagation(); openCardHelp('${card.id}')">?</button>`
+            ${showHelp
+                ? `<button type="button" class="card-help-btn" title="查看使用说明" aria-label="查看使用说明" onclick="event.stopPropagation(); openAnyCardHelp('baseWifiCards', ${idx})">?</button>`
                 : ''}
         `;
         container.appendChild(cardEl);
@@ -579,6 +567,12 @@ function cmsNowChinaStr() {
 
 function normalizeCmsState(state) {
     if (!state || typeof state !== 'object') return state;
+    if (Array.isArray(state.baseWifiCards) && typeof window.normalizeBaseWifiCards === 'function') {
+        state.baseWifiCards = window.normalizeBaseWifiCards(state.baseWifiCards);
+    }
+    if (Array.isArray(state.companyWifiList) && typeof window.normalizeCompanyWifiCards === 'function') {
+        state.companyWifiList = window.normalizeCompanyWifiCards(state.companyWifiList);
+    }
     if (Array.isArray(state.proxyList) && typeof window.normalizeProxyCards === 'function') {
         state.proxyList = window.normalizeProxyCards(state.proxyList);
     }
@@ -589,38 +583,12 @@ function normalizeCmsState(state) {
     } else if (typeof window.normalizeNetTestCards === 'function') {
         state.netTestList = window.normalizeNetTestCards(state.netTestList);
     }
-    if (!state.companyWifiDefault || typeof state.companyWifiDefault !== 'object') {
-        state.companyWifiDefault = { ssid: '', pwd: '' };
-    } else {
-        state.companyWifiDefault.ssid = String(state.companyWifiDefault.ssid || '');
-        state.companyWifiDefault.pwd = String(state.companyWifiDefault.pwd || '');
+    if (typeof window.normalizeSectionBlocks === 'function') {
+        state.sectionBlocks = window.normalizeSectionBlocks(state.sectionBlocks, state);
+        state.wifiTitle = state.sectionBlocks.wifi.title;
+        state.wifiTip = state.sectionBlocks.wifi.tip;
+        state.netTestTip = state.sectionBlocks.netTest.tip;
     }
-    if (typeof state.netTestTip !== 'string') {
-        state.netTestTip = '依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App';
-    }
-    ['baseWifiCards', 'proxyList', 'companyWifiList', 'netTestList'].forEach(group => {
-        if (Array.isArray(state[group])) {
-            state[group].forEach((item, idx) => {
-                if (!item) return;
-                if (item.visible === undefined) item.visible = true;
-                if (group === 'proxyList') {
-                    if (!item.id) item.id = 'proxy_' + (idx + 1);
-                    if (item.qrMode !== 'link' && item.qrMode !== 'image') {
-                        item.qrMode = (!item.imgPath && item.proxyUrl) ? 'link' : 'image';
-                    }
-                    if (item.imgPath === undefined) item.imgPath = '';
-                    if (item.proxyUrl === undefined) item.proxyUrl = '';
-                    if (item.firstOnlineAt === undefined) item.firstOnlineAt = '2026/10/22 10:00:00';
-                    if (item.statusOverride !== 'up' && item.statusOverride !== 'down' && item.statusOverride !== 'auto') {
-                        item.statusOverride = 'auto';
-                    }
-                    item.manualOverride = item.statusOverride !== 'auto' || Boolean(item.manualOverride);
-                    if (item.manualDownAt === undefined) item.manualDownAt = '';
-                    if (item.manualNote === undefined) item.manualNote = '';
-                }
-            });
-        }
-    });
     return state;
 }
 
@@ -651,16 +619,75 @@ window.cmsToggleShow = function (index, checked) {
     window.cmsToggleVisible('baseWifiCards', index, checked);
 };
 
-/** 切换卡片「?」帮助弹窗类型（图片/文字/无），切换后重渲染出对应输入框 */
-window.cmsSetCardHelpType = function (index, value) {
-    const card = (cmsState.baseWifiCards || [])[index];
+/** 通用：切换任意分组卡片的「?」帮助弹窗类型（'' / 'image' / 'text'） */
+window.cmsSetAnyCardHelpType = function (group, index, value) {
+    const list = cmsState && cmsState[group];
+    const card = list && list[index];
     if (!card) return;
     cmsDirty = true;
-    card.helpType = value;
-    if (value === 'text' && !card.helpText) {
-        card.helpText = '# 使用说明\n\n在这里写这张网络的使用说明…\n\n:::success 小贴士\n支持 Markdown 语法\n:::';
+    card.helpType = (value === 'image' || value === 'text') ? value : '';
+    if (card.helpType === 'text' && !card.helpText) {
+        card.helpText = `# ${card.name || '卡片'} 使用说明\n\n在这里填写该卡片的文字说明…\n\n:::success 小贴士\n支持 Markdown 语法\n:::`;
     }
     renderCmsPanel();
+};
+
+window.cmsSetCardHelpType = function (index, value) {
+    window.cmsSetAnyCardHelpType('baseWifiCards', index, value);
+};
+
+/** 通用：切换任意分组卡片的二维码添加方式（'image' 上传图片 / 'link' 输入链接自动生成） */
+window.cmsSetCardQrMode = function (group, index, mode) {
+    const list = cmsState && cmsState[group];
+    const item = list && list[index];
+    if (!item) return;
+    cmsDirty = true;
+    item.qrMode = mode === 'link' ? 'link' : 'image';
+    if (group === 'baseWifiCards') {
+        if (item.qrMode === 'link') {
+            if (!item.wifiString) {
+                item.wifiString = `WIFI:T:WPA;S:${item.name || ''};P:${item.pwd || ''};;`;
+            }
+        } else {
+            item.wifiString = '';
+        }
+    } else if (group === 'companyWifiList') {
+        if (item.qrMode === 'link') {
+            if (!item.ssid && item.name) item.ssid = item.name;
+            if (!item.qrText && item.ssid) {
+                item.qrText = `WIFI:T:WPA;S:${item.ssid};P:${item.pwd || ''};;`;
+            }
+        }
+    }
+    renderCmsPanel();
+};
+
+/** 通用：修改区块级标题、提示语与右上角「?」问号配置 */
+window.cmsSetSectionBlock = function (secKey, field, value) {
+    if (!cmsState) return;
+    cmsDirty = true;
+    if (!cmsState.sectionBlocks && typeof window.normalizeSectionBlocks === 'function') {
+        cmsState.sectionBlocks = window.normalizeSectionBlocks(null, cmsState);
+    }
+    cmsState.sectionBlocks = cmsState.sectionBlocks || {};
+    cmsState.sectionBlocks[secKey] = cmsState.sectionBlocks[secKey] || { title: '', tip: '', helpType: '', helpImg: '', helpText: '' };
+    cmsState.sectionBlocks[secKey][field] = value;
+
+    // 同步旧字段
+    if (secKey === 'wifi') {
+        if (field === 'title') cmsState.wifiTitle = value;
+        if (field === 'tip') cmsState.wifiTip = value;
+    } else if (secKey === 'netTest' && field === 'tip') {
+        cmsState.netTestTip = value;
+    }
+
+    if (field === 'helpType') {
+        if (value === 'text' && !cmsState.sectionBlocks[secKey].helpText) {
+            const defTitle = cmsState.sectionBlocks[secKey].title || '区块使用说明';
+            cmsState.sectionBlocks[secKey].helpText = `# ${defTitle}\n\n在此输入本区块的说明内容（支持 Markdown）…`;
+        }
+        renderCmsPanel();
+    }
 };
 
 /* ---------------- 分区折叠与锚点跳转 ---------------- */
@@ -830,16 +857,26 @@ function cmsStatusText() {
 /** 自动归类：按「有没有二维码 / 什么类型的码」判断，后台据此分组展示 */
 function cmsCat(item, group) {
     if (group === 'baseWifiCards') {
-        if (item.wifiString) return { key: 'wifi', cls: 'wifi', label: '📡 WiFi 协议自动生码（无图片）' };
-        if (item.img) return { key: 'image', cls: 'image', label: '🖼 图片二维码' };
-        return { key: 'none', cls: 'none', label: '📝 纯文字卡（无二维码）' };
+        if (item.qrMode === 'link' || (item.qrMode !== 'image' && item.wifiString)) {
+            return { key: 'link', cls: 'wifi', label: '🔗 输入链接/WiFi自动生码' };
+        }
+        if (item.img) return { key: 'image', cls: 'image', label: '🖼 上传的二维码图片' };
+        return { key: 'none', cls: 'none', label: '📝 未设图片二维码' };
     }
     if (group === 'proxyList') {
         if (item.qrMode === 'link') {
-            return { key: 'link', cls: 'wifi', label: '🔗 前置链接自动生码' };
+            return { key: 'link', cls: 'wifi', label: '🔗 输入链接自动生码' };
         }
         return item.imgPath
-            ? { key: 'image', cls: 'image', label: '🖼 图片二维码' }
+            ? { key: 'image', cls: 'image', label: '🖼 上传的二维码图片' }
+            : { key: 'none', cls: 'miss', label: '⚠️ 未设置二维码图片' };
+    }
+    if (group === 'companyWifiList') {
+        if (item.qrMode === 'link') {
+            return { key: 'link', cls: 'wifi', label: '🔗 输入链接/WiFi自动生码' };
+        }
+        return item.imgPath
+            ? { key: 'image', cls: 'image', label: '🖼 上传的二维码图片' }
             : { key: 'none', cls: 'miss', label: '⚠️ 未设置二维码图片' };
     }
     if (group === 'music') {
@@ -848,21 +885,21 @@ function cmsCat(item, group) {
             : { key: 'miss', cls: 'miss', label: '⚠️ 缺少音频文件' };
     }
     return item.imgPath
-        ? { key: 'image', cls: 'image', label: '🖼 图片二维码' }
+        ? { key: 'image', cls: 'image', label: '🖼 上传的二维码图片' }
         : { key: 'none', cls: 'miss', label: '⚠️ 未设置二维码图片' };
 }
 
 const CMS_CAT_ORDER = {
-    baseWifiCards: ['wifi', 'image', 'none'],
+    baseWifiCards: ['link', 'image', 'none'],
     proxyList: ['link', 'image', 'none'],
-    companyWifiList: ['image', 'none'],
+    companyWifiList: ['link', 'image', 'none'],
     music: ['ok', 'miss']
 };
 
 /** 按分类分组渲染（保持同组内数组的先后顺序） */
 function cmsGroupedRows(group, renderRow) {
     const list = cmsState[group] || [];
-    const order = CMS_CAT_ORDER[group] || ['image', 'none'];
+    const order = CMS_CAT_ORDER[group] || ['link', 'image', 'none'];
     const withIdx = list.map((item, i) => ({ item, i }));
     return order.map(key => {
         const items = withIdx.filter(o => cmsCat(o.item, group).key === key);
@@ -901,11 +938,7 @@ function cmsRenderVisSwitch(group, index, item) {
 
 /** 前置代理卡片：切换二维码来源模式（image / link） */
 window.cmsSetProxyQrMode = function (index, mode) {
-    const item = (cmsState && cmsState.proxyList || [])[index];
-    if (!item) return;
-    cmsDirty = true;
-    item.qrMode = mode === 'link' ? 'link' : 'image';
-    renderCmsPanel();
+    window.cmsSetCardQrMode('proxyList', index, mode);
 };
 
 /** 前置代理卡片：切换状态覆盖（auto / up / down） */
@@ -1286,17 +1319,141 @@ function renderProxyNodesSubbox() {
     `;
 }
 
+/* ---------------- 通用组件：区块右上角「?」问号与提示语配置 & 卡片级「?」问号配置 ---------------- */
+
+function renderSectionBlockConfig(secKey, sectionLabel) {
+    const blocks = (cmsState && cmsState.sectionBlocks) || (window.DEFAULT_SECTION_BLOCKS || {});
+    const b = (blocks && blocks[secKey]) || { title: '', tip: '', helpType: '', helpImg: '', helpText: '' };
+    const hType = (b.helpType === 'image' || b.helpType === 'text') ? b.helpType : '';
+    return `
+        <div class="cms-subbox" style="margin-bottom:14px;">
+            <div class="cms-subbox-title">📌 ${sectionLabel} · 区块标题、顶部提示语 &amp; 右上角「?」问号帮助设置</div>
+            <div class="cms-grid">
+                <div class="cms-field"><label>区块标题</label>
+                    <input type="text" value="${esc(b.title || '')}" oninput="cmsSetSectionBlock('${secKey}','title',this.value)"></div>
+                <div class="cms-field"><label>顶部提示语（留空则整行隐藏）</label>
+                    <input type="text" placeholder="留空则不显示提示文字" value="${esc(b.tip || '')}" oninput="cmsSetSectionBlock('${secKey}','tip',this.value)"></div>
+                <div class="cms-field"><label>❓ 区块右上角「?」问号帮助</label>
+                    <select onchange="cmsSetSectionBlock('${secKey}','helpType',this.value)">
+                        <option value="" ${!hType ? 'selected' : ''}>🚫 不显示问号（关闭）</option>
+                        <option value="text" ${hType === 'text' ? 'selected' : ''}>📝 文字说明（点击弹出文字/Markdown浮层）</option>
+                        <option value="image" ${hType === 'image' ? 'selected' : ''}>🖼 图片说明（点击弹出图片浮层）</option>
+                    </select></div>
+                ${hType === 'image' ? `<div class="cms-field"><label>问号弹窗图片 URL</label>
+                    <input type="text" placeholder="images/xxx.jpg 或 Drive 链接" value="${esc(b.helpImg || '')}" oninput="cmsSetSectionBlock('${secKey}','helpImg',this.value)"></div>` : ''}
+            </div>
+            ${hType === 'image' ? `<div class="cms-item-bar" style="margin-top:10px;">
+                ${b.helpImg ? `<img class="cms-thumb" src="${esc(b.helpImg)}" alt="问号说明图预览" onerror="imgFallback(this)">` : ''}
+                <label class="cms-file-btn">📤 上传问号说明图片
+                    <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','__section__','${secKey}','helpImg')">
+                </label>
+            </div>` : ''}
+            ${hType === 'text' ? `<div class="cms-field mt-15"><label>❓ 区块右上角问号弹窗文字内容（支持 Markdown：# 标题、**加粗**、- 列表、:::success 提示框…）</label>
+                <textarea class="cms-guide-editor" rows="5" oninput="cmsSetSectionBlock('${secKey}','helpText',this.value)">${esc(b.helpText || '')}</textarea></div>` : ''}
+        </div>
+    `;
+}
+
+function renderCardHelpFieldSelect(group, index, card) {
+    const hType = (card.helpType === 'image' || card.helpType === 'text') ? card.helpType : '';
+    return `
+        <div class="cms-field"><label>❓ 卡片右上角「?」帮助按钮</label>
+            <select onchange="cmsSetAnyCardHelpType('${group}',${index},this.value)">
+                <option value="" ${!hType ? 'selected' : ''}>🚫 不显示问号</option>
+                <option value="text" ${hType === 'text' ? 'selected' : ''}>📝 文字说明（弹窗显示，支持 Markdown）</option>
+                <option value="image" ${hType === 'image' ? 'selected' : ''}>🖼 图片说明（弹窗显示大图）</option>
+            </select></div>
+        ${hType === 'image' ? `<div class="cms-field"><label>问号弹窗图片 URL</label>
+            <input type="text" placeholder="images/xxx.jpg 或 Drive 链接" value="${esc(card.helpImg || '')}" oninput="cmsSet('${group}',${index},'helpImg',this.value)"></div>` : ''}
+    `;
+}
+
+function renderCardHelpUploadBtn(group, index, card) {
+    if (card.helpType !== 'image') return '';
+    return `
+        ${card.helpImg ? `<img class="cms-thumb" src="${esc(card.helpImg)}" alt="问号图预览" onerror="imgFallback(this)">` : ''}
+        <label class="cms-file-btn">🖼 上传问号说明图
+            <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${index},'helpImg')">
+        </label>
+    `;
+}
+
+function renderCardHelpTextEditor(group, index, card) {
+    if (card.helpType !== 'text') return '';
+    return `
+        <div class="cms-field mt-15"><label>❓ 卡片右上角问号弹窗文字内容（支持 Markdown：# 标题、**加粗**、- 列表、:::success 提示框…）</label>
+            <textarea class="cms-guide-editor" rows="5" oninput="cmsSet('${group}',${index},'helpText',this.value)">${esc(card.helpText || '')}</textarea></div>
+    `;
+}
+
+/** 统一刷新后台所有「输入链接自动生成」卡片的二维码小预览图 */
+function cmsRefreshAllLinkQrPreviews() {
+    if (typeof waitForQRCode !== 'function') return;
+    waitForQRCode(() => {
+        if (!cmsState) return;
+        // 1. 前置代理
+        (cmsState.proxyList || []).forEach((item, idx) => {
+            if (!item || item.qrMode !== 'link') return;
+            const imgEl = document.getElementById('cmsQrPreview_proxyList_' + idx);
+            const raw = String(item.proxyUrl || '').trim();
+            if (!imgEl || !raw) return;
+            QRCode.toDataURL(raw, { width: 120, margin: 1 }, (err, dataUrl) => {
+                if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
+            });
+        });
+        // 2. 公司 WiFi
+        (cmsState.companyWifiList || []).forEach((item, idx) => {
+            if (!item || item.qrMode !== 'link') return;
+            const imgEl = document.getElementById('cmsQrPreview_companyWifiList_' + idx);
+            const linkText = getCompanyCardLinkText(item);
+            if (!imgEl || !linkText) return;
+            QRCode.toDataURL(linkText, { width: 120, margin: 1 }, (err, dataUrl) => {
+                if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
+            });
+        });
+        // 3. 基础网络
+        (cmsState.baseWifiCards || []).forEach((item, idx) => {
+            const isLink = item && (item.qrMode === 'link' || (item.qrMode !== 'image' && item.wifiString));
+            if (!isLink) return;
+            const imgEl = document.getElementById('cmsQrPreview_baseWifiCards_' + idx);
+            const linkText = String(item.wifiString || '').trim() || `WIFI:T:WPA;S:${item.name || ''};P:${item.pwd || ''};;`;
+            if (!imgEl || !linkText) return;
+            QRCode.toDataURL(linkText, { width: 120, margin: 1 }, (err, dataUrl) => {
+                if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
+            });
+        });
+        // 4. 网络测试
+        (cmsState.netTestList || []).forEach((item, idx) => {
+            if (!item || item.qrMode === 'image') return;
+            const imgEl = document.getElementById('cmsNetQrPreview_' + idx);
+            if (!imgEl) return;
+            const { fullUrl } = normalizeNetTestUrlPair(item.url);
+            if (!fullUrl) {
+                imgEl.removeAttribute('src');
+                return;
+            }
+            QRCode.toDataURL(fullUrl, { width: 120, margin: 1 }, (err, dataUrl) => {
+                if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
+            });
+        });
+    });
+}
+
 /* ---------------- 1/2. 前置代理 & 公司 WiFi ---------------- */
 
 function cmsSectionProxy(group, sec) {
     const isProxy = group === 'proxyList';
     const rows = cmsGroupedRows(group, (c, i) => {
         const isVisible = c.visible !== false;
+        const qrMode = c.qrMode === 'link' ? 'link' : 'image';
+
         if (!isProxy) {
+            const linkText = getCompanyCardLinkText(c);
             return `
             <div class="cms-item ${isVisible ? '' : 'is-hidden'}">
                 <div class="cms-item-head">
                     <span class="cms-badge ${cmsCat(c, group).cls}">${esc(c.name || '未命名')}</span>
+                    <span style="font-size:11.5px;color:var(--text-muted);">${qrMode === 'link' ? '🔗 自动生成二维码' : '🖼 上传图片二维码'}</span>
                     ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
                     <span class="cms-spacer"></span>
                     ${cmsRenderVisSwitch(group, i, c)}
@@ -1304,22 +1461,44 @@ function cmsSectionProxy(group, sec) {
                     <button type="button" class="cms-move" title="下移" onclick="cmsMove('${group}',${i},1)">↓</button>
                 </div>
                 <div class="cms-grid">
-                    <div class="cms-field"><label>名称</label>
-                        <input type="text" value="${esc(c.name)}" oninput="cmsSet('${group}',${i},'name',this.value)"></div>
-                    <div class="cms-field"><label>二维码图片 URL</label>
-                        <input type="text" value="${esc(c.imgPath || '')}" oninput="cmsSet('${group}',${i},'imgPath',this.value)"></div>
+                    <div class="cms-field"><label>卡片显示名称</label>
+                        <input type="text" placeholder="例如：Advert 办公网" value="${esc(c.name || '')}" oninput="cmsSet('${group}',${i},'name',this.value)"></div>
+                    <div class="cms-field"><label>二维码添加方式 (二选一)</label>
+                        <select onchange="cmsSetCardQrMode('${group}',${i},this.value)">
+                            <option value="image" ${qrMode === 'image' ? 'selected' : ''}>① 上传我自己的二维码图片</option>
+                            <option value="link" ${qrMode === 'link' ? 'selected' : ''}>② 输入链接/WiFi自动生成</option>
+                        </select></div>
+                    ${qrMode === 'image' ? `
+                    <div class="cms-field"><label>二维码图片 URL (imgPath)</label>
+                        <input type="text" placeholder="images/wifi1.jpg 或上传后的 Drive 链接" value="${esc(c.imgPath || '')}" oninput="cmsSet('${group}',${i},'imgPath',this.value)"></div>
+                    ` : `
+                    <div class="cms-field"><label>📶 WiFi 名称 (SSID，填了自动合成连接码)</label>
+                        <input type="text" placeholder="输入 WiFi 名称，如：Advert" value="${esc(c.ssid || '')}" oninput="cmsSet('${group}',${i},'ssid',this.value)"></div>
+                    <div class="cms-field"><label>🔑 WiFi 密码</label>
+                        <input type="text" placeholder="输入 WiFi 密码，如：Jingda2025" value="${esc(c.pwd || '')}" oninput="cmsSet('${group}',${i},'pwd',this.value)"></div>
+                    <div class="cms-field" style="grid-column: 1 / -1;"><label>🔗 自动生成内容 / 自定义链接（填写上方 SSID+密码会自动生成 WIFI:T:WPA;S:名称;P:密码;;，也可直接填任意链接）</label>
+                        <input type="text" id="cmsCompanyQrText_${i}" placeholder="WIFI:T:WPA;S:名称;P:密码;; 或任意网址" value="${esc(c.qrText || linkText)}" oninput="cmsSet('${group}',${i},'qrText',this.value)"></div>
+                    `}
+                    ${renderCardHelpFieldSelect(group, i, c)}
                 </div>
                 <div class="cms-item-bar">
-                    ${c.imgPath ? `<img class="cms-thumb" src="${esc(c.imgPath)}" alt="预览" onerror="imgFallback(this)">` : ''}
-                    <label class="cms-file-btn">📤 上传二维码
-                        <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${i},'imgPath')">
-                    </label>
+                    ${qrMode === 'image' ? `
+                        ${c.imgPath ? `<img class="cms-thumb" src="${esc(c.imgPath)}" alt="预览" onerror="imgFallback(this)">` : ''}
+                        <label class="cms-file-btn">📤 上传二维码图片
+                            <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${i},'imgPath')">
+                        </label>
+                    ` : `
+                        <img id="cmsQrPreview_companyWifiList_${i}" class="cms-thumb" style="width:44px;height:44px;background:#fff;padding:3px;border-radius:6px;" alt="自动生成二维码预览">
+                        <span style="font-size:12px;color:var(--text-muted);">实时生成预览：<code id="cmsCompanyQrCode_${i}">${esc(linkText || '请填写 WiFi 名称或链接')}</code></span>
+                    `}
+                    ${renderCardHelpUploadBtn(group, i, c)}
+                    <span class="cms-spacer"></span>
                     <button type="button" class="cms-del" onclick="cmsDel('${group}',${i})">🗑 删除</button>
                 </div>
+                ${renderCardHelpTextEditor(group, i, c)}
             </div>`;
         }
 
-        const qrMode = c.qrMode === 'link' ? 'link' : 'image';
         const override = (c.statusOverride === 'up' || c.statusOverride === 'down') ? c.statusOverride : 'auto';
         const st = typeof window.getProxyStatus === 'function' ? window.getProxyStatus(c) : { status: 'unknown', dotState: 'unknown' };
         const pillCls = st.dotState === 'slow' ? 'slow' : st.status;
@@ -1343,15 +1522,17 @@ function cmsSectionProxy(group, sec) {
             <div class="cms-grid">
                 <div class="cms-field"><label>名称</label>
                     <input type="text" value="${esc(c.name)}" oninput="cmsSet('${group}',${i},'name',this.value)"></div>
-                <div class="cms-field"><label>二维码来源 (qrMode)</label>
-                    <select onchange="cmsSetProxyQrMode(${i},this.value)">
-                        <option value="image" ${qrMode === 'image' ? 'selected' : ''}>🖼 本地/上传图片 (image)</option>
-                        <option value="link" ${qrMode === 'link' ? 'selected' : ''}>🔗 由前置链接自动生成二维码 (link)</option>
+                <div class="cms-field"><label>二维码添加方式 (二选一)</label>
+                    <select onchange="cmsSetCardQrMode('proxyList',${i},this.value)">
+                        <option value="image" ${qrMode === 'image' ? 'selected' : ''}>① 上传我自己的二维码图片</option>
+                        <option value="link" ${qrMode === 'link' ? 'selected' : ''}>② 输入链接自动生成</option>
                     </select></div>
-                <div class="cms-field"><label>前置链接 (proxyUrl，复制内容 &amp; 链接生码/自动探测源)</label>
+                <div class="cms-field"><label>前置链接 (proxyUrl，复制内容 &amp; ${qrMode === 'link' ? '自动生成二维码源' : '自动探测源'})</label>
                     <input type="text" placeholder="IP:端口:账号:密码 或 Egern/socks5/hysteria2 链接" value="${esc(c.proxyUrl || '')}" oninput="cmsSet('${group}',${i},'proxyUrl',this.value)"></div>
-                <div class="cms-field"><label>二维码图片 URL (imgPath，图片模式使用)</label>
+                ${qrMode === 'image' ? `
+                <div class="cms-field"><label>二维码图片 URL (imgPath)</label>
                     <input type="text" placeholder="images/proxy1.jpg 或 Drive 链接" value="${esc(c.imgPath || '')}" oninput="cmsSet('${group}',${i},'imgPath',this.value)"></div>
+                ` : ''}
                 <div class="cms-field"><label>首次上线时间 (firstOnlineAt)</label>
                     <div style="display:flex; gap:6px;">
                         <input type="text" placeholder="YYYY/MM/DD HH:mm:ss" value="${esc(c.firstOnlineAt || '')}" oninput="cmsSet('${group}',${i},'firstOnlineAt',this.value)">
@@ -1368,44 +1549,44 @@ function cmsSectionProxy(group, sec) {
                     <input type="text" placeholder="YYYY/MM/DD HH:mm:ss" value="${esc(c.manualDownAt || '')}" oninput="cmsSet('${group}',${i},'manualDownAt',this.value)"></div>
                 <div class="cms-field"><label>手动标记备注 (manualNote，展示在前台卡片与遮罩)</label>
                     <input type="text" placeholder="例如：国内移动/电信连不上前置，正在切换线路" value="${esc(c.manualNote || '')}" oninput="cmsSet('${group}',${i},'manualNote',this.value)"></div>
+                ${renderCardHelpFieldSelect(group, i, c)}
             </div>
             <div class="cms-item-bar">
-                ${c.imgPath ? `<img class="cms-thumb" src="${esc(c.imgPath)}" alt="预览" onerror="imgFallback(this)">` : ''}
-                <label class="cms-file-btn">📤 上传二维码
-                    <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${i},'imgPath')">
-                </label>
+                ${qrMode === 'image' ? `
+                    ${c.imgPath ? `<img class="cms-thumb" src="${esc(c.imgPath)}" alt="预览" onerror="imgFallback(this)">` : ''}
+                    <label class="cms-file-btn">📤 上传二维码图片
+                        <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${i},'imgPath')">
+                    </label>
+                ` : `
+                    <img id="cmsQrPreview_proxyList_${i}" class="cms-thumb" style="width:44px;height:44px;background:#fff;padding:3px;border-radius:6px;" alt="链接自动生码预览">
+                    <span style="font-size:12px;color:var(--text-muted);">已启用「输入链接自动生成」</span>
+                `}
+                ${renderCardHelpUploadBtn(group, i, c)}
                 <button type="button" class="cms-quick-status-btn is-down ${override === 'down' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'down')">🔴 一键强制标红</button>
                 <button type="button" class="cms-quick-status-btn is-up ${override === 'up' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'up')">🟢 一键强制标绿</button>
                 <button type="button" class="cms-quick-status-btn is-auto ${override === 'auto' ? 'active' : ''}" onclick="cmsQuickProxyStatus(${i},'auto')">🤖 恢复自动探测</button>
                 <button type="button" class="cms-del" onclick="cmsDel('${group}',${i})">🗑 删除</button>
             </div>
+            ${renderCardHelpTextEditor(group, i, c)}
         </div>`;
     });
 
-    const tipText = isProxy
-        ? '下方管理前台展示的前置代理二维码卡片（当卡片名称与上方 PROXY_Nodes 节点显示名一致时，自动关联探测状态）。'
-        : '已按「是否已上传二维码」自动归类；可直接切换「显示/隐藏」开关控制前台展示，用 ↑ ↓ 调整顺序。';
+    setTimeout(cmsRefreshAllLinkQrPreviews, 15);
 
-    const companyGenDefaultBox = !isProxy ? `
-        <div class="cms-subbox" style="margin-bottom:16px;">
-            <div class="cms-subbox-title">⚡ 公司 WiFi 二维码自动生成器 · 默认值配置（前台自动填充 &amp; 生成二维码）</div>
-            <div class="cms-tip" style="margin-top:4px;margin-bottom:10px;">
-                配置后，前台「🏢 公司 WiFi 二维码」区块将默认填入该 WiFi 名称与密码，并按标准协议 <code>WIFI:T:WPA;S:名称;P:密码;;</code> 自动生成二维码，手机扫码即可一键连 WiFi。
-            </div>
-            <div class="cms-grid">
-                <div class="cms-field"><label>默认 WiFi 名称（SSID）</label>
-                    <input type="text" placeholder="例如：Advert" value="${esc((cmsState.companyWifiDefault && cmsState.companyWifiDefault.ssid) || '')}" oninput="cmsSetCompanyWifiDefault('ssid',this.value)"></div>
-                <div class="cms-field"><label>默认 WiFi 密码</label>
-                    <input type="text" placeholder="例如：Jingda2025" value="${esc((cmsState.companyWifiDefault && cmsState.companyWifiDefault.pwd) || '')}" oninput="cmsSetCompanyWifiDefault('pwd',this.value)"></div>
-            </div>
-        </div>
-    ` : '';
+    const tipText = isProxy
+        ? '下方管理前台展示的前置代理二维码卡片（每个卡片均可选「① 上传我自己的二维码图片」或「② 输入链接自动生成」）。'
+        : '下方管理「🏢 公司 WiFi 二维码」卡片：每张卡片可选「① 上传我自己的二维码图片」或「② 输入链接/WiFi自动生成」（填入 SSID 与密码即可按 WIFI:T:WPA;S:名称;P:密码;; 自动转成二维码）。';
+
+    const secBlockHtml = isProxy
+        ? renderSectionBlockConfig('proxy', '「前置代理二维码」区块')
+        : renderSectionBlockConfig('company', '「🏢 公司 WiFi 二维码」区块');
 
     const body = `
-        ${isProxy ? renderProxyNodesSubbox() : companyGenDefaultBox}
+        ${secBlockHtml}
+        ${isProxy ? renderProxyNodesSubbox() : ''}
         <div class="cms-tip">${tipText}</div>
         ${rows || '<div class="cms-tip">暂无条目</div>'}
-        <button type="button" class="cms-add" onclick="cmsAdd('${group}')">➕ 新增条目</button>`;
+        <button type="button" class="cms-add" onclick="cmsAdd('${group}')">➕ 新增${isProxy ? '前置代理卡片' : '公司 WiFi 二维码卡片'}</button>`;
 
     return cmsWrapSection(sec, body, cmsVisibleStatBadge(group));
 }
@@ -1416,10 +1597,13 @@ function cmsSectionWifi(sec) {
     const fxSelected = (v) => (!v || v === 'default') ? 'default' : v;
     const rows = cmsGroupedRows('baseWifiCards', (c, i) => {
         const isVisible = c.visible !== false;
+        const qrMode = (c.qrMode === 'link' || (c.qrMode !== 'image' && c.wifiString)) ? 'link' : 'image';
+        const autoWifiStr = String(c.wifiString || '').trim() || `WIFI:T:WPA;S:${c.name || ''};P:${c.pwd || ''};;`;
         return `
         <div class="cms-item ${isVisible ? '' : 'is-hidden'}">
             <div class="cms-item-head">
                 <span class="cms-badge ${cmsCat(c, 'baseWifiCards').cls}">${esc(c.name || '未命名')}</span>
+                <span style="font-size:11.5px;color:var(--text-muted);">${qrMode === 'link' ? '🔗 自动生成二维码' : '🖼 上传图片二维码'}</span>
                 ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
                 <span class="cms-spacer"></span>
                 ${cmsRenderVisSwitch('baseWifiCards', i, c)}
@@ -1431,8 +1615,18 @@ function cmsSectionWifi(sec) {
                     <input type="text" value="${esc(c.name)}" oninput="cmsSet('baseWifiCards',${i},'name',this.value)"></div>
                 <div class="cms-field"><label>密码</label>
                     <input type="text" value="${esc(c.pwd || '')}" oninput="cmsSet('baseWifiCards',${i},'pwd',this.value)"></div>
+                <div class="cms-field"><label>二维码添加方式 (二选一)</label>
+                    <select onchange="cmsSetCardQrMode('baseWifiCards',${i},this.value)">
+                        <option value="image" ${qrMode === 'image' ? 'selected' : ''}>① 上传我自己的二维码图片</option>
+                        <option value="link" ${qrMode === 'link' ? 'selected' : ''}>② 输入链接/WiFi自动生成</option>
+                    </select></div>
+                ${qrMode === 'image' ? `
                 <div class="cms-field"><label>二维码图片 URL</label>
                     <input type="text" value="${esc(c.img || '')}" oninput="cmsSet('baseWifiCards',${i},'img',this.value)"></div>
+                ` : `
+                <div class="cms-field"><label>自动生成协议 / 链接 (随名称密码自动同步，也可自定义)</label>
+                    <input type="text" id="cmsBaseWifiStr_${i}" value="${esc(autoWifiStr)}" oninput="cmsSet('baseWifiCards',${i},'wifiString',this.value)"></div>
+                `}
                 <div class="cms-field"><label>角标文案（可留空）</label>
                     <input type="text" value="${esc(c.tag || '')}" oninput="cmsSet('baseWifiCards',${i},'tag',this.value)"></div>
                 <div class="cms-field"><label>✨ 卡片动效风格</label>
@@ -1446,46 +1640,33 @@ function cmsSectionWifi(sec) {
                         <option value="gradient" ${fxSelected(c.fx) === 'gradient' ? 'selected' : ''}>渐变流彩</option>
                         <option value="float" ${fxSelected(c.fx) === 'float' ? 'selected' : ''}>轻微漂浮</option>
                     </select></div>
-                <div class="cms-field"><label>❓「?」帮助弹窗</label>
-                    <select onchange="cmsSetCardHelpType(${i},this.value)">
-                        <option value="" ${!c.helpType ? 'selected' : ''}>不显示问号</option>
-                        <option value="image" ${c.helpType === 'image' ? 'selected' : ''}>图片教程（弹大图）</option>
-                        <option value="text" ${c.helpType === 'text' ? 'selected' : ''}>文字教程（弹窗显示，支持 Markdown）</option>
-                    </select></div>
-                ${c.helpType === 'image' ? `<div class="cms-field"><label>教程图片 URL</label>
-                    <input type="text" value="${esc(c.helpImg || '')}" oninput="cmsSet('baseWifiCards',${i},'helpImg',this.value)"></div>` : ''}
+                ${renderCardHelpFieldSelect('baseWifiCards', i, c)}
             </div>
             <div class="cms-item-bar">
-                ${c.img ? `<img class="cms-thumb" src="${esc(c.img)}" alt="预览" onerror="imgFallback(this)">` : ''}
-                <label class="cms-file-btn">📤 上传二维码
-                    <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','baseWifiCards',${i},'img')">
-                </label>
-                ${c.helpType === 'image' ? `<label class="cms-file-btn">🖼 上传教程图
-                    <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','baseWifiCards',${i},'helpImg')">
-                </label>` : ''}
-                <label class="cms-check">
-                    <input type="checkbox" ${c.wifiString ? 'checked' : ''} onchange="cmsToggleWifiMode(${i},this)"> 用 WiFi 协议自动生码（无需图片）
-                </label>
+                ${qrMode === 'image' ? `
+                    ${c.img ? `<img class="cms-thumb" src="${esc(c.img)}" alt="预览" onerror="imgFallback(this)">` : ''}
+                    <label class="cms-file-btn">📤 上传二维码图片
+                        <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','baseWifiCards',${i},'img')">
+                    </label>
+                ` : `
+                    <img id="cmsQrPreview_baseWifiCards_${i}" class="cms-thumb" style="width:44px;height:44px;background:#fff;padding:3px;border-radius:6px;" alt="WiFi自动生码预览">
+                    <span style="font-size:12px;color:var(--text-muted);">已启用「自动生成二维码」：<code id="cmsBaseWifiCode_${i}">${esc(autoWifiStr)}</code></span>
+                `}
+                ${renderCardHelpUploadBtn('baseWifiCards', i, c)}
                 <label class="cms-check"><input type="checkbox" ${c.large ? 'checked' : ''} onchange="cmsSet('baseWifiCards',${i},'large',this.checked)"> 名称放大</label>
                 <label class="cms-check"><input type="checkbox" ${c.danger ? 'checked' : ''} onchange="cmsSet('baseWifiCards',${i},'danger',this.checked)"> 高危标红</label>
                 <button type="button" class="cms-del" onclick="cmsDel('baseWifiCards',${i})">🗑 删除</button>
             </div>
-            ${c.helpType === 'text' ? `<div class="cms-field mt-15"><label>❓ 问号弹窗文字内容（支持 Markdown：# 标题、**加粗**、- 列表、:::success 提示框…）</label>
-                <textarea class="cms-guide-editor" rows="6" oninput="cmsSet('baseWifiCards',${i},'helpText',this.value)">${esc(c.helpText || '')}</textarea></div>` : ''}
+            ${renderCardHelpTextEditor('baseWifiCards', i, c)}
         </div>`;
     });
 
+    setTimeout(cmsRefreshAllLinkQrPreviews, 15);
+
     const body = `
-        <div class="cms-subbox">
-            <div class="cms-subbox-title">📝 「代理 &amp; WiFi」版面文案</div>
-            <div class="cms-grid">
-                <div class="cms-field"><label>区块标题</label>
-                    <input type="text" value="${esc(cmsState.wifiTitle || '')}" oninput="cmsSetText('wifiTitle',this.value)"></div>
-                <div class="cms-field"><label>提示文字（留空则整行隐藏）</label>
-                    <input type="text" value="${esc(cmsState.wifiTip || '')}" oninput="cmsSetText('wifiTip',this.value)"></div>
-            </div>
-        </div>
-        <div class="cms-tip">已按「有无二维码」自动归类分组；右上角开关可直接切换卡片显隐，用 ↑ ↓ 在同一分组内调整顺序。</div>
+        ${renderSectionBlockConfig('wifi', '「📶 代理 & WiFi」主区块')}
+        ${renderSectionBlockConfig('softRouter', '「软路由分流通道」区块')}
+        <div class="cms-tip">每张基础网络卡片均支持「① 上传我自己的二维码图片」或「② 输入链接/WiFi自动生成」，并可单独控制卡片右上角「?」帮助说明。</div>
         ${rows || '<div class="cms-tip">暂无卡片</div>'}
         <button type="button" class="cms-add" onclick="cmsAdd('baseWifiCards')">➕ 新增基础网络卡片</button>`;
 
@@ -1629,25 +1810,6 @@ function cmsSectionGuide(sec) {
 
 /* ---------------- 7. IP 生成页 · 网络测试卡片 ---------------- */
 
-function cmsRefreshNetTestQrPreviews() {
-    if (typeof waitForQRCode !== 'function') return;
-    waitForQRCode(() => {
-        const list = (cmsState && cmsState.netTestList) || [];
-        list.forEach((item, idx) => {
-            const imgEl = document.getElementById('cmsNetQrPreview_' + idx);
-            if (!imgEl || !item) return;
-            const { fullUrl } = normalizeNetTestUrlPair(item.url);
-            if (!fullUrl) {
-                imgEl.removeAttribute('src');
-                return;
-            }
-            QRCode.toDataURL(fullUrl, { width: 120, margin: 1 }, (err, dataUrl) => {
-                if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
-            });
-        });
-    });
-}
-
 window.cmsMoveNetTest = function (index, dir) {
     const list = cmsState && cmsState.netTestList;
     if (!Array.isArray(list) || !list[index]) return;
@@ -1664,12 +1826,13 @@ function cmsSectionNetTest(sec) {
     const list = (cmsState && cmsState.netTestList) || [];
     const rows = list.map((c, i) => {
         const isVisible = c.visible !== false;
+        const qrMode = c.qrMode === 'image' ? 'image' : 'link';
         const { shortUrl, fullUrl } = normalizeNetTestUrlPair(c.url);
         return `
         <div class="cms-item ${isVisible ? '' : 'is-hidden'}">
             <div class="cms-item-head">
-                <span class="cms-badge wifi">${esc(c.name || '未命名检测站')}</span>
-                <span style="font-size:12px;color:var(--text-muted);font-family:Consolas,monospace;">${esc(shortUrl || '未填网址')}</span>
+                <span class="cms-badge ${qrMode === 'image' ? 'image' : 'wifi'}">${esc(c.name || '未命名检测站')}</span>
+                <span style="font-size:12px;color:var(--text-muted);font-family:Consolas,monospace;">${esc(shortUrl || '未填网址')} · ${qrMode === 'image' ? '🖼 上传图片' : '🔗 自动生码'}</span>
                 ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
                 <span class="cms-spacer"></span>
                 ${cmsRenderVisSwitch('netTestList', i, c)}
@@ -1679,31 +1842,47 @@ function cmsSectionNetTest(sec) {
             <div class="cms-grid">
                 <div class="cms-field"><label>检测网站名称</label>
                     <input type="text" placeholder="例如：DNSLeakTest" value="${esc(c.name || '')}" oninput="cmsSet('netTestList',${i},'name',this.value)"></div>
-                <div class="cms-field"><label>网址（修改后自动重新生成二维码）</label>
+                <div class="cms-field"><label>二维码添加方式 (二选一)</label>
+                    <select onchange="cmsSetCardQrMode('netTestList',${i},this.value)">
+                        <option value="link" ${qrMode === 'link' ? 'selected' : ''}>② 输入链接自动生成</option>
+                        <option value="image" ${qrMode === 'image' ? 'selected' : ''}>① 上传我自己的二维码图片</option>
+                    </select></div>
+                <div class="cms-field"><label>网址（点击跳转地址 &amp; ${qrMode === 'link' ? '自动生成二维码源' : '展示用网址'}）</label>
                     <input type="text" placeholder="例如：dnsleaktest.com" value="${esc(c.url || '')}" oninput="cmsSet('netTestList',${i},'url',this.value)"></div>
+                ${qrMode === 'image' ? `
+                <div class="cms-field"><label>二维码图片 URL (imgPath)</label>
+                    <input type="text" placeholder="images/xxx.jpg 或上传后的 Drive 链接" value="${esc(c.imgPath || '')}" oninput="cmsSet('netTestList',${i},'imgPath',this.value)"></div>
+                ` : ''}
                 <div class="cms-field" style="grid-column: 1 / -1;"><label>介绍说明文字（展开大卡片时显示在二维码下方）</label>
                     <input type="text" placeholder="例如：测 IP DNS 泄漏" value="${esc(c.desc || '')}" oninput="cmsSet('netTestList',${i},'desc',this.value)"></div>
+                ${renderCardHelpFieldSelect('netTestList', i, c)}
             </div>
             <div class="cms-item-bar">
-                <img id="cmsNetQrPreview_${i}" class="cms-thumb" style="width:44px;height:44px;background:#fff;padding:3px;border-radius:6px;" alt="二维码预览">
-                <span style="font-size:12px;color:var(--text-muted);">二维码目标：<code id="cmsNetUrlCode_${i}">${esc(fullUrl || '—')}</code></span>
+                ${qrMode === 'image' ? `
+                    ${c.imgPath ? `<img class="cms-thumb" src="${esc(c.imgPath)}" alt="二维码预览" onerror="imgFallback(this)">` : ''}
+                    <label class="cms-file-btn">📤 上传二维码图片
+                        <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','netTestList',${i},'imgPath')">
+                    </label>
+                ` : `
+                    <img id="cmsNetQrPreview_${i}" class="cms-thumb" style="width:44px;height:44px;background:#fff;padding:3px;border-radius:6px;" alt="二维码预览">
+                    <span style="font-size:12px;color:var(--text-muted);">二维码目标：<code id="cmsNetUrlCode_${i}">${esc(fullUrl || '—')}</code></span>
+                `}
+                ${renderCardHelpUploadBtn('netTestList', i, c)}
                 <span class="cms-spacer"></span>
                 <button type="button" class="cms-del" onclick="cmsDel('netTestList',${i})">🗑 删除</button>
             </div>
+            ${renderCardHelpTextEditor('netTestList', i, c)}
         </div>`;
     }).join('');
 
-    setTimeout(cmsRefreshNetTestQrPreviews, 10);
+    setTimeout(cmsRefreshAllLinkQrPreviews, 15);
 
     const body = `
-        <div class="cms-subbox" style="margin-bottom:14px;">
-            <div class="cms-subbox-title">📝 「网络测试」顶部提示语</div>
-            <div class="cms-grid">
-                <div class="cms-field" style="grid-column: 1 / -1;"><label>顶部提示文案（留空则隐藏）</label>
-                    <input type="text" value="${esc(cmsState.netTestTip || '')}" oninput="cmsSetText('netTestTip',this.value)"></div>
-            </div>
-        </div>
-        <div class="cms-tip">管理「⚡ IP 生成」页面最下方的「🌐 网络测试」卡片。支持增删改、控制显隐，修改网址后二维码将自动重新生成。</div>
+        ${renderSectionBlockConfig('netTest', '「🌐 网络测试」区块')}
+        ${renderSectionBlockConfig('quick', '「⚡ IP 二维码生成」区块')}
+        ${renderSectionBlockConfig('batch', '「📋 填写 IP 报表」区块')}
+        ${renderSectionBlockConfig('single', '「🔍 IP 提取与代理检测」区块')}
+        <div class="cms-tip">管理「⚡ IP 生成」页面最下方的「🌐 网络测试」卡片。支持选择「上传图片」或「输入链接自动生成」，并可单独控制每张卡片右上角「?」问号。</div>
         ${rows || '<div class="cms-tip">暂无检测网站卡片</div>'}
         <button type="button" class="cms-add" onclick="cmsAdd('netTestList')">➕ 新增检测网站卡片</button>`;
 
@@ -1712,22 +1891,72 @@ function cmsSectionNetTest(sec) {
 
 /* ---------------- 交互函数 ---------------- */
 
-window.cmsSetCompanyWifiDefault = function (field, value) {
-    cmsDirty = true;
-    cmsState.companyWifiDefault = cmsState.companyWifiDefault || { ssid: '', pwd: '' };
-    cmsState.companyWifiDefault[field] = value;
-};
-
 window.cmsSet = function (group, index, key, value) {
     const item = (cmsState[group] || [])[index];
     if (!item) return;
     cmsDirty = true;
     item[key] = value;
-    // WiFi 协议生码模式下，名称/密码变更时同步刷新二维码内容
-    if (group === 'baseWifiCards' && item.wifiString && (key === 'name' || key === 'pwd')) {
-        item.wifiString = `WIFI:T:WPA;S:${item.name};P:${item.pwd || ''};;`;
+
+    // 1. 基础网络卡片在自动生码模式下，名称/密码变更时同步刷新 wifiString 与预览
+    if (group === 'baseWifiCards') {
+        const isLink = item.qrMode === 'link' || (item.qrMode !== 'image' && item.wifiString);
+        if (isLink && (key === 'name' || key === 'pwd')) {
+            item.wifiString = `WIFI:T:WPA;S:${item.name || ''};P:${item.pwd || ''};;`;
+            const strInp = document.getElementById('cmsBaseWifiStr_' + index);
+            if (strInp) strInp.value = item.wifiString;
+        }
+        if (isLink && (key === 'name' || key === 'pwd' || key === 'wifiString')) {
+            const targetStr = String(item.wifiString || '').trim() || `WIFI:T:WPA;S:${item.name || ''};P:${item.pwd || ''};;`;
+            const codeEl = document.getElementById('cmsBaseWifiCode_' + index);
+            if (codeEl) codeEl.textContent = targetStr;
+            const imgEl = document.getElementById('cmsQrPreview_baseWifiCards_' + index);
+            if (imgEl && targetStr && typeof waitForQRCode === 'function') {
+                waitForQRCode(() => {
+                    QRCode.toDataURL(targetStr, { width: 120, margin: 1 }, (err, dataUrl) => {
+                        if (!err && dataUrl) imgEl.src = dataUrl;
+                    });
+                });
+            }
+        }
     }
-    // 网络测试卡片修改网址时，实时重新生成后台预览二维码与前台二维码
+
+    // 2. 公司 WiFi 卡片在自动生码模式下，SSID/密码变更时自动合成 WIFI:T:WPA;S:名称;P:密码;; 并实时刷新二维码预览
+    if (group === 'companyWifiList' && item.qrMode === 'link') {
+        if (key === 'ssid' || key === 'pwd') {
+            const ssid = String(item.ssid || item.name || '').trim();
+            item.qrText = ssid ? `WIFI:T:WPA;S:${ssid};P:${item.pwd || ''};;` : '';
+            const txtInp = document.getElementById('cmsCompanyQrText_' + index);
+            if (txtInp) txtInp.value = item.qrText;
+        }
+        if (key === 'ssid' || key === 'pwd' || key === 'qrText' || key === 'name') {
+            const linkText = getCompanyCardLinkText(item);
+            const codeEl = document.getElementById('cmsCompanyQrCode_' + index);
+            if (codeEl) codeEl.textContent = linkText || '请填写 WiFi 名称或链接';
+            const imgEl = document.getElementById('cmsQrPreview_companyWifiList_' + index);
+            if (imgEl && linkText && typeof waitForQRCode === 'function') {
+                waitForQRCode(() => {
+                    QRCode.toDataURL(linkText, { width: 120, margin: 1 }, (err, dataUrl) => {
+                        if (!err && dataUrl) imgEl.src = dataUrl;
+                    });
+                });
+            }
+        }
+    }
+
+    // 3. 前置代理卡片在自动生码模式下，修改 proxyUrl 实时刷新预览
+    if (group === 'proxyList' && item.qrMode === 'link' && key === 'proxyUrl') {
+        const raw = String(value || '').trim();
+        const imgEl = document.getElementById('cmsQrPreview_proxyList_' + index);
+        if (imgEl && raw && typeof waitForQRCode === 'function') {
+            waitForQRCode(() => {
+                QRCode.toDataURL(raw, { width: 120, margin: 1 }, (err, dataUrl) => {
+                    if (!err && dataUrl) imgEl.src = dataUrl;
+                });
+            });
+        }
+    }
+
+    // 4. 网络测试卡片修改网址时，实时重新生成后台预览二维码
     if (group === 'netTestList' && key === 'url') {
         const { fullUrl } = normalizeNetTestUrlPair(value);
         const codeEl = document.getElementById('cmsNetUrlCode_' + index);
@@ -1744,12 +1973,19 @@ window.cmsSet = function (group, index, key, value) {
 };
 
 window.cmsSetFlag = function (key, value) { cmsDirty = true; cmsState[key] = value; };
-window.cmsSetText = function (key, value) { cmsDirty = true; cmsState[key] = value; };
+window.cmsSetText = function (key, value) {
+    cmsDirty = true;
+    cmsState[key] = value;
+    if (cmsState.sectionBlocks) {
+        if (key === 'wifiTitle' && cmsState.sectionBlocks.wifi) cmsState.sectionBlocks.wifi.title = value;
+        if (key === 'wifiTip' && cmsState.sectionBlocks.wifi) cmsState.sectionBlocks.wifi.tip = value;
+        if (key === 'netTestTip' && cmsState.sectionBlocks.netTest) cmsState.sectionBlocks.netTest.tip = value;
+    }
+};
 window.cmsSetEffect = function (key, value) {
     cmsDirty = true;
     cmsState.effects = cmsState.effects || { pwdFx: 'default', cardHover: true };
     cmsState.effects[key] = (key === 'cardHover') ? (value === 'on') : value;
-    // 实时预览（仅本机生效，保存后才全网下发）
     if (window.SiteContent) { window.SiteContent.data = cmsState; window.applySiteContent(); }
 };
 window.cmsSetBg = function (key, value) {
@@ -1757,7 +1993,6 @@ window.cmsSetBg = function (key, value) {
     cmsState.background = cmsState.background || {};
     cmsState.background[key] = value;
     if (key === 'mode' || key === 'videoEnabled') renderCmsPanel();
-    // 背景与视频实时预览（仅本机生效，保存后才全网下发）
     if (window.SiteContent) {
         window.SiteContent.data = cmsState;
         window.BG_CONFIG = cmsState.background;
@@ -1783,11 +2018,7 @@ window.cmsMdInsert = function (before, after) {
 };
 
 window.cmsToggleWifiMode = function (index, checkbox) {
-    const card = (cmsState.baseWifiCards || [])[index];
-    if (!card) return;
-    cmsDirty = true;
-    card.wifiString = checkbox.checked ? `WIFI:T:WPA;S:${card.name};P:${card.pwd || ''};;` : '';
-    renderCmsPanel();
+    window.cmsSetCardQrMode('baseWifiCards', index, checkbox && checkbox.checked ? 'link' : 'image');
 };
 
 window.cmsAdd = function (group) {
@@ -1796,8 +2027,8 @@ window.cmsAdd = function (group) {
     if (group === 'baseWifiCards') {
         const nid = 'card' + Date.now();
         cmsState[group].push({
-            id: nid, name: '新网络', pwd: '', img: '', wifiString: '',
-            tag: '', large: false, danger: false, visible: true
+            id: nid, name: '新网络', pwd: '', qrMode: 'link', img: '', wifiString: 'WIFI:T:WPA;S:新网络;P:;;',
+            tag: '', large: false, danger: false, visible: true, helpType: '', helpImg: '', helpText: ''
         });
         const ids = getShownIds();
         if (ids.indexOf(nid) < 0) { ids.push(nid); setShownIds(ids); }
@@ -1813,7 +2044,24 @@ window.cmsAdd = function (group) {
             statusOverride: 'auto',
             manualOverride: false,
             manualDownAt: '',
-            manualNote: ''
+            manualNote: '',
+            helpType: '',
+            helpImg: '',
+            helpText: ''
+        });
+    } else if (group === 'companyWifiList') {
+        cmsState[group].push({
+            id: 'company_' + Date.now(),
+            name: '新公司WiFi',
+            qrMode: 'link',
+            imgPath: '',
+            ssid: '新公司WiFi',
+            pwd: '',
+            qrText: 'WIFI:T:WPA;S:新公司WiFi;P:;;',
+            visible: true,
+            helpType: '',
+            helpImg: '',
+            helpText: ''
         });
     } else if (group === 'music') {
         cmsState[group].push({ name: '新曲目', url: '' });
@@ -1821,12 +2069,17 @@ window.cmsAdd = function (group) {
         cmsState[group].push({
             id: 'net_' + Date.now(),
             name: '新检测网站',
+            qrMode: 'link',
             url: 'ipinfo.io',
+            imgPath: '',
             desc: '检测代理 IP 纯净度与匿名性',
-            visible: true
+            visible: true,
+            helpType: '',
+            helpImg: '',
+            helpText: ''
         });
     } else {
-        cmsState[group].push({ name: '新条目', imgPath: '', visible: true });
+        cmsState[group].push({ name: '新条目', qrMode: 'image', imgPath: '', visible: true });
     }
     renderCmsPanel();
 };
@@ -1863,6 +2116,7 @@ window.cmsUploadFile = function (input, kind, group, index, key, bgKey) {
         }, true).then(j => {
             if (j && j.ok && j.file) {
                 if (bgKey) cmsSetBg(bgKey, j.file.url);
+                else if (group === '__section__') window.cmsSetSectionBlock(index, key, j.file.url);
                 else window.cmsSet(group, index, key, j.file.url);
                 showToast('✅ 上传成功，记得保存下发');
                 renderCmsPanel();

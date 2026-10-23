@@ -355,8 +355,7 @@
     const url = getMobileUploadUrl();
     QRCode.toDataURL(url, { width: 240, margin: 2 }, function (err, data) {
       if (err) { box.innerHTML = '<div style="color:#FF5555">二维码生成失败</div>'; return; }
-      box.innerHTML = '<img src="' + data + '" alt="上传页二维码" style="width:240px;height:240px;border-radius:12px">' +
-        '<div style="margin-top:8px;font-size:11.5px;color:#8b949e;word-break:break-all;"><a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" style="color:#58a6ff;text-decoration:none;">' + esc(url) + '</a></div>';
+      box.innerHTML = '<img src="' + data + '" alt="上传页二维码" style="width:240px;height:240px;border-radius:12px;display:block;">';
     });
   };
 

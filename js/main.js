@@ -109,7 +109,6 @@ document.addEventListener('DOMContentLoaded', () => {
     applyTheme();
     renderStaticCards(); 
     applyWifiLayoutConfig(); 
-    if (typeof window.syncCompanyWifiDefaults === 'function') window.syncCompanyWifiDefaults();
     if (typeof window.renderNetTestCards === 'function') window.renderNetTestCards();
     
     if (typeof window.createParticles === 'function') { window.createParticles(); window.animate(); }
@@ -180,8 +179,10 @@ function applyWifiLayoutConfig() {
             cardEl.className = `compact-card ${card.danger ? 'danger-card' : ''} ${card.fx && card.fx !== 'default' ? 'fx-' + card.fx : ''}`;
             
             cardEl.onclick = () => {
-                if (card.wifiString) {
-                    openModalWithWifiQr(card.name, card.wifiString, card.pwd);
+                const useLink = card.qrMode === 'link' || (card.qrMode !== 'image' && card.wifiString);
+                if (useLink) {
+                    const targetWifiStr = card.wifiString || `WIFI:T:WPA;S:${card.name || ''};P:${card.pwd || ''};;`;
+                    openModalWithWifiQr(card.name, targetWifiStr, card.pwd);
                 } else {
                     openModalWithImage(card.name, card.img);
                 }
