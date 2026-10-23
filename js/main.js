@@ -109,6 +109,8 @@ document.addEventListener('DOMContentLoaded', () => {
     applyTheme();
     renderStaticCards(); 
     applyWifiLayoutConfig(); 
+    if (typeof window.syncCompanyWifiDefaults === 'function') window.syncCompanyWifiDefaults();
+    if (typeof window.renderNetTestCards === 'function') window.renderNetTestCards();
     
     if (typeof window.createParticles === 'function') { window.createParticles(); window.animate(); }
     
@@ -646,6 +648,31 @@ function triggerAdminCount() {
 
 window.toggleAdminPersist = function(checkbox) { localStorage.setItem('keepAdminOpen', checkbox.checked ? 'true' : 'false'); showToast(checkbox.checked ? "📌 大屏已锁定，刷新不再消失" : "🔓 已解除锁定，刷新将隐藏"); };
 
+window.__adminControlCollapsed = true;
+
+window.toggleAdminBlock = function(blockId) {
+    const el = document.getElementById(blockId);
+    if (!el) return;
+    const nextCollapsed = !el.classList.contains('is-collapsed');
+    el.classList.toggle('is-collapsed', nextCollapsed);
+    if (blockId === 'adminControlBox') {
+        window.__adminControlCollapsed = nextCollapsed;
+    }
+    const btn = el.querySelector(':scope > .cms-sec-head .cms-collapse-btn') || el.querySelector('.cms-collapse-btn');
+    if (btn) {
+        btn.setAttribute('aria-expanded', nextCollapsed ? 'false' : 'true');
+        btn.innerHTML = nextCollapsed ? '展开 ▾' : '折叠 ▴';
+    }
+    if (!nextCollapsed) {
+        if (blockId === 'adminChartSection' && typeof myTrafficChart !== 'undefined' && myTrafficChart) {
+            setTimeout(() => { try { myTrafficChart.resize(); } catch (e) {} }, 60);
+        }
+        if (blockId === 'adminInboxSection' && typeof window.refreshAdminInbox === 'function') {
+            window.refreshAdminInbox(true);
+        }
+    }
+};
+
 function injectAdminControls() {
     const container = document.getElementById('adminControlContainer'); 
     if (!container) return; // 移除之前的 return 拦截，确保无论何时调用都能强制挂载最新 HTML
@@ -669,32 +696,43 @@ function injectAdminControls() {
         </label>
     `).join('');
 
-    container.innerHTML = `
-        <div id="adminControlBox" style="margin-bottom:20px; padding:20px; border:1px solid #e6a23c; border-radius:12px; background:rgba(230,162,60,0.05);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
-                <h4 style="color:#e6a23c; font-size:15px; font-weight:700; margin:0; display:flex; align-items:center; gap:15px;">🎛️ 数据看板与前台展示策略控制台 <label style="font-size:13px; font-weight:normal; color:var(--text-color); cursor:pointer; display:flex; align-items:center; gap:5px; background:var(--glass-bg); padding:4px 10px; border-radius:6px; border:1px solid var(--glass-border);"><input type="checkbox" ${isLocked} onchange="toggleAdminPersist(this)"> 📌 锁定大屏</label></h4>
-                <div class="admin-switch-group" style="margin:0;"><label class="admin-radio-label"><input type="radio" name="cfgDataMode" value="real" ${mode === 'real' ? 'checked' : ''} onchange="toggleAdminInputs()"> 🟢 实时真实数据</label><label class="admin-radio-label"><input type="radio" name="cfgDataMode" value="custom" ${mode === 'custom' ? 'checked' : ''} onchange="toggleAdminInputs()"> 🛠️ 自定义修正数据</label></div>
-            </div>
+    const isCtrlCollapsed = window.__adminControlCollapsed !== false;
 
-            <!-- 前台网络模块显示管理区域 -->
-            <div style="margin-bottom:15px; padding:15px; background:var(--glass-card); border-radius:10px; border: 1px dashed var(--glass-border);">
-                <h5 style="margin-bottom:12px; color:var(--text-color); font-size:13.5px;">📶 前台【代理 & WiFi】页面模块开关 (云端全员同步)</h5>
-                <div style="display:flex; gap:25px; flex-wrap:wrap; align-items:center;">
-                    <label class="admin-radio-label" style="font-weight:bold; color:#007AFF;">
-                        <input type="checkbox" id="cfgShowSoftRouterInput" ${showSoftRouter}> 开启【软路由分流通道】展示 (未勾选则完全折叠隐藏)
-                    </label>
-                    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                        <span style="font-size:13px; font-weight:bold; color:var(--text-muted);">基础网络卡片展示 (勾选即显示，自动向左对齐补位)：</span>
-                        ${wifiCheckboxesHtml}
+    container.innerHTML = `
+        <div id="adminControlBox" class="cms-card cms-section ${isCtrlCollapsed ? 'is-collapsed' : ''}" style="border-color:rgba(230,162,60,0.55); background:rgba(230,162,60,0.05);">
+            <div class="cms-sec-head" onclick="toggleAdminBlock('adminControlBox')">
+                <div class="cms-sec-title-wrap">
+                    <h4 style="color:#e6a23c;">🎛️ 数据看板与前台展示策略控制台</h4>
+                    <label onclick="event.stopPropagation()" style="font-size:12.5px; font-weight:normal; color:var(--text-color); cursor:pointer; display:inline-flex; align-items:center; gap:5px; background:var(--glass-bg); padding:3px 10px; border-radius:6px; border:1px solid var(--glass-border);"><input type="checkbox" ${isLocked} onchange="toggleAdminPersist(this)"> 📌 锁定大屏</label>
+                </div>
+                <button type="button" class="cms-collapse-btn" aria-expanded="${isCtrlCollapsed ? 'false' : 'true'}" onclick="event.stopPropagation(); toggleAdminBlock('adminControlBox')">${isCtrlCollapsed ? '展开 ▾' : '折叠 ▴'}</button>
+            </div>
+            <div class="cms-sec-body">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                    <span style="font-size:13px; color:var(--text-muted);">选择前台顶栏「当前在线」与「累计服务」的展示模式：</span>
+                    <div class="admin-switch-group" style="margin:0;"><label class="admin-radio-label"><input type="radio" name="cfgDataMode" value="real" ${mode === 'real' ? 'checked' : ''} onchange="toggleAdminInputs()"> 🟢 实时真实数据</label><label class="admin-radio-label"><input type="radio" name="cfgDataMode" value="custom" ${mode === 'custom' ? 'checked' : ''} onchange="toggleAdminInputs()"> 🛠️ 自定义修正数据</label></div>
+                </div>
+
+                <!-- 前台网络模块显示管理区域 -->
+                <div style="margin-bottom:15px; padding:15px; background:var(--glass-card); border-radius:10px; border: 1px dashed var(--glass-border);">
+                    <h5 style="margin-bottom:12px; color:var(--text-color); font-size:13.5px;">📶 前台【代理 & WiFi】页面模块开关 (云端全员同步)</h5>
+                    <div style="display:flex; gap:25px; flex-wrap:wrap; align-items:center;">
+                        <label class="admin-radio-label" style="font-weight:bold; color:#007AFF;">
+                            <input type="checkbox" id="cfgShowSoftRouterInput" ${showSoftRouter}> 开启【软路由分流通道】展示 (未勾选则完全折叠隐藏)
+                        </label>
+                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                            <span style="font-size:13px; font-weight:bold; color:var(--text-muted);">基础网络卡片展示 (勾选即显示，自动向左对齐补位)：</span>
+                            ${wifiCheckboxesHtml}
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div id="customDataInputs" style="display:${mode === 'custom' ? 'flex' : 'none'}; gap:20px; flex-wrap:wrap; margin-bottom:15px; padding:15px; background:var(--glass-card); border-radius:10px; border: 1px dashed var(--glass-border);">
-                <div style="flex:1; min-width:200px; padding-right:15px; border-right:1px dashed var(--glass-border);"><h5 style="margin-bottom:10px; color:var(--text-color);">👥 当前在线人数控制</h5><div class="form-group" style="margin-bottom:0;"><label>固定基准数值 (会自动波动)：</label><input type="number" id="cfgOnlineFixed" value="${onlineFixed}"></div></div>
-                <div style="flex:1; min-width:200px;"><h5 style="margin-bottom:10px; color:var(--text-color);">🚀 累计服务人数控制</h5><div style="display:flex; gap:10px;"><div class="form-group" style="flex:1; margin-bottom:0;"><label>模式：</label><select id="cfgTotalMode" onchange="document.getElementById('cfgTotalFixedWrap').style.display = this.value === 'fixed' ? 'block' : 'none'; document.getElementById('cfgTotalOffsetWrap').style.display = this.value === 'offset' ? 'block' : 'none';" style="width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--glass-border); background:transparent; color:var(--text-color);"><option value="offset" ${totalMode === 'offset' ? 'selected' : ''}>真实台账数 + 加成</option><option value="fixed" ${totalMode === 'fixed' ? 'selected' : ''}>锁定为固定</option></select></div><div class="form-group" id="cfgTotalOffsetWrap" style="flex:1; margin-bottom:0; display:${totalMode === 'offset' ? 'block' : 'none'};"><label>加成数值：</label><input type="number" id="cfgTotalOffset" value="${offset}"></div><div class="form-group" id="cfgTotalFixedWrap" style="flex:1; margin-bottom:0; display:${totalMode === 'fixed' ? 'block' : 'none'};"><label>固定数值：</label><input type="number" id="cfgTotalFixed" value="${totalFixed}"></div></div></div>
+                <div id="customDataInputs" style="display:${mode === 'custom' ? 'flex' : 'none'}; gap:20px; flex-wrap:wrap; margin-bottom:15px; padding:15px; background:var(--glass-card); border-radius:10px; border: 1px dashed var(--glass-border);">
+                    <div style="flex:1; min-width:200px; padding-right:15px; border-right:1px dashed var(--glass-border);"><h5 style="margin-bottom:10px; color:var(--text-color);">👥 当前在线人数控制</h5><div class="form-group" style="margin-bottom:0;"><label>固定基准数值 (会自动波动)：</label><input type="number" id="cfgOnlineFixed" value="${onlineFixed}"></div></div>
+                    <div style="flex:1; min-width:200px;"><h5 style="margin-bottom:10px; color:var(--text-color);">🚀 累计服务人数控制</h5><div style="display:flex; gap:10px;"><div class="form-group" style="flex:1; margin-bottom:0;"><label>模式：</label><select id="cfgTotalMode" onchange="document.getElementById('cfgTotalFixedWrap').style.display = this.value === 'fixed' ? 'block' : 'none'; document.getElementById('cfgTotalOffsetWrap').style.display = this.value === 'offset' ? 'block' : 'none';" style="width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--glass-border); background:transparent; color:var(--text-color);"><option value="offset" ${totalMode === 'offset' ? 'selected' : ''}>真实台账数 + 加成</option><option value="fixed" ${totalMode === 'fixed' ? 'selected' : ''}>锁定为固定</option></select></div><div class="form-group" id="cfgTotalOffsetWrap" style="flex:1; margin-bottom:0; display:${totalMode === 'offset' ? 'block' : 'none'};"><label>加成数值：</label><input type="number" id="cfgTotalOffset" value="${offset}"></div><div class="form-group" id="cfgTotalFixedWrap" style="flex:1; margin-bottom:0; display:${totalMode === 'fixed' ? 'block' : 'none'};"><label>固定数值：</label><input type="number" id="cfgTotalFixed" value="${totalFixed}"></div></div></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-top:15px; padding-top:15px; border-top:1px dashed var(--glass-border);"><button class="btn-primary" onclick="saveAdminConfig()">🚀 保存并全局下发配置</button><div style="font-size:12px; color:var(--text-muted); font-weight:600;">📊 物理真实数据 —— 总条数: <span id="realTotalRow" style="color:#007AFF;">--</span> | 活跃终端: <span id="realOnlineIp" style="color:#34C759;">--</span> 个</div></div>
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-top:15px; padding-top:15px; border-top:1px dashed var(--glass-border);"><button class="btn-primary" onclick="saveAdminConfig()">🚀 保存并全局下发配置</button><div style="font-size:12px; color:var(--text-muted); font-weight:600;">📊 物理真实数据 —— 总条数: <span id="realTotalRow" style="color:#007AFF;">--</span> | 活跃终端: <span id="realOnlineIp" style="color:#34C759;">--</span> 个</div></div>
         </div>`;
 
     // 挂载「站点内容管理台」（admin-cms.js）

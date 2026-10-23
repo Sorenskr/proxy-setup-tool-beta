@@ -2,12 +2,13 @@
   const ROOM = 'MatrixNode';
   const PUBLIC_SITE_URL = 'https://sorenskr.github.io/proxy-setup-tool-beta/';
   const API = (typeof REPORT_API_URL !== 'undefined' && REPORT_API_URL) ? REPORT_API_URL.trim() : '';
-  const READ_KEY = 'inboxLastReadId';
-  const NET_ERR_MSG = '网络不可达，请确认已挂代理后重试';
+  const NET_ERR_MSG = '请开启代理后重试（网络不可达，请确认已挂代理后重试）';
   const OCR_ERR_MSG = '识别失败，请换清晰图或手动输入';
 
-  let messages = [];
-  let timer = null;
+  // 仅保存当前浏览器页面本次会话发送的消息（内存态，刷新或关闭标签页即清空，不持久化）
+  let sessionMessages = [];
+  // 审计大屏「扫码收件箱 (MN_Inbox)」全量云端备份列表（仅在展开大屏区块或点击刷新时拉取）
+  let adminMessages = [];
   let directPastedFile = null;
 
   function esc(s) {
@@ -46,8 +47,12 @@
   };
 
   /** 图片加载失败时自动尝试备用缩略图直链 */
-  window.onInboxImgError = function (imgEl, rawUrl) {
+  window.onInboxImgError = function (imgEl, rawUrl, localBackup) {
     if (!imgEl) return;
+    if (localBackup && imgEl.src !== localBackup) {
+      imgEl.src = localBackup;
+      return;
+    }
     const step = parseInt(imgEl.getAttribute('data-fallback-step') || '0', 10);
     const id = extractDriveFileId(rawUrl || imgEl.src);
     if (id && step === 0) {
@@ -75,6 +80,14 @@
       }
     }
     return s;
+  }
+
+  function nowLocalTimeStr() {
+    if (typeof window.getChinaTime === 'function') return window.getChinaTime();
+    const d = new Date();
+    const p = function (n) { return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) +
+      ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   }
 
   /** 带超时控制的 fetch，网络异常时统一转换为友好提示 */
@@ -136,7 +149,7 @@
     });
   }
 
-  /** 发送文字、图片或图文组合到云端 INBOX_SUBMIT 接口 */
+  /** 发送文字、图片或图文组合到云端 INBOX_SUBMIT 接口（后台照常写入 Google 表格 MN_Inbox 备份） */
   async function sendInboxPayload(text, file, roomOverride) {
     if (!API) throw new Error('云端接口地址未配置');
     const cleanText = (text || '').trim();
@@ -170,27 +183,33 @@
     if (!j || !j.ok) {
       throw new Error((j && j.error) || '提交失败');
     }
-    return j;
+    return {
+      ok: true,
+      message: j.message || null,
+      localDataUrl: localDataUrl,
+      text: cleanText
+    };
   }
 
-  /** 获取手机扫码用的上传页地址（规范化斜杠，避免 iOS Safari 二次 301 跳转） */
+  /**
+   * 获取手机扫码用的静态短地址（直接指向本站 /inbox.html，避免 script.google.com 超长 302 链接导致 iOS Safari 报错）
+   */
   function getMobileUploadUrl() {
     const host = String(location.hostname || '');
     const isLocal = !host || host === 'localhost' || host === '127.0.0.1' || location.protocol === 'file:';
     let base = isLocal ? PUBLIC_SITE_URL : (location.origin + location.pathname);
-    base = base.replace(/\/index\.html?$/i, '/');
-    if (!base.endsWith('/') && !/\.html?$/i.test(base)) base += '/';
-    return base + '?inboxpage=1&room=' + encodeURIComponent(ROOM);
+    base = base.replace(/\/(?:index|inbox)\.html?$/i, '/');
+    if (!base.endsWith('/')) base += '/';
+    return base + 'inbox.html';
   }
 
-  /** 若手机扫码带 ?inboxpage=1 打开本页，直接渲染一体化手机上传界面（兼容 iOS Safari 与 Android） */
+  /** 兼容旧版带 ?inboxpage=1 的二维码链接，自动渲染移动端上传页 */
   function checkAndRenderStandaloneMobilePage() {
     let params;
     try { params = new URLSearchParams(location.search); } catch (e) { return false; }
     if (params.get('inboxpage') !== '1') return false;
     const roomParam = params.get('room') || ROOM;
 
-    // 停止任何桌面端残留媒体元素，防止 iOS Safari 弹出权限或异常闪烁
     try {
       const v = document.getElementById('bgVideo');
       if (v) { v.pause(); v.removeAttribute('src'); }
@@ -198,7 +217,7 @@
       if (a) { a.pause(); a.removeAttribute('src'); }
     } catch (e) {}
 
-    document.title = '📡 内容上传';
+    document.title = '📡 扫码传内容';
     document.body.innerHTML = [
       '<div id="mInboxRoot" style="min-height:100dvh;display:flex;flex-direction:column;justify-content:space-between;background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;padding:20px 16px 12px;box-sizing:border-box;-webkit-text-size-adjust:100%;">',
       '  <div style="width:100%;max-width:520px;margin:0 auto;">',
@@ -294,7 +313,7 @@
       setMsg(file ? '⏳ 正在高清处理并上传内容…' : '⏳ 正在发送…', true);
       try {
         await sendInboxPayload(text, file, roomParam);
-        setMsg('✅ 发送成功！电脑端右下角收件箱已收到', true);
+        setMsg('✅ 发送成功！已写入云端收件箱备份', true);
         txtEl.value = '';
         updateMobilePreview(null);
       } catch (err) {
@@ -312,7 +331,6 @@
     if (!el) return;
     if (el._hideTimer) { clearTimeout(el._hideTimer); el._hideTimer = null; }
     el.style.display = displayMode || 'flex';
-    // 强制触发 reflow 后添加 is-open，保证 transition 动画生效
     void el.offsetWidth;
     el.classList.add('is-open');
   }
@@ -337,7 +355,8 @@
     const url = getMobileUploadUrl();
     QRCode.toDataURL(url, { width: 240, margin: 2 }, function (err, data) {
       if (err) { box.innerHTML = '<div style="color:#FF5555">二维码生成失败</div>'; return; }
-      box.innerHTML = '<img src="' + data + '" alt="上传页二维码" style="width:240px;height:240px;border-radius:12px">';
+      box.innerHTML = '<img src="' + data + '" alt="上传页二维码" style="width:240px;height:240px;border-radius:12px">' +
+        '<div style="margin-top:8px;font-size:11.5px;color:#8b949e;word-break:break-all;"><a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" style="color:#58a6ff;text-decoration:none;">' + esc(url) + '</a></div>';
     });
   };
 
@@ -373,9 +392,7 @@
       closeAnimatedModal(panel);
     } else {
       openAnimatedModal(panel, 'flex');
-      markAllRead();
       renderInbox();
-      fetchInbox();
     }
   };
 
@@ -430,14 +447,26 @@
     if (btnEl) { btnEl.disabled = true; btnEl.textContent = '发送中…'; }
     setDirectStatus(file ? '正在上传…' : '正在发送…', false);
     try {
-      await sendInboxPayload(text, file, ROOM);
+      const res = await sendInboxPayload(text, file, ROOM);
+      const serverMsg = (res && res.message) || {};
+      const newMsg = {
+        id: serverMsg.id || ('local_' + Date.now()),
+        time: serverMsg.time || nowLocalTimeStr(),
+        type: serverMsg.type || (file ? 'image' : 'text'),
+        text: serverMsg.text !== undefined ? serverMsg.text : text,
+        imgUrl: serverMsg.imgUrl || res.localDataUrl || '',
+        localDataUrl: res.localDataUrl || '',
+        ocrText: ''
+      };
+      // 仅将本次会话本页面发送成功的消息追加到当前页面对话框列表（不拉取全房间历史）
+      sessionMessages.unshift(newMsg);
+      renderInbox();
+
       if (txtEl) txtEl.value = '';
       updateDirectPreview(null);
       setDirectStatus('✅ 已发送', false);
       setTimeout(function () { setDirectStatus('', false); }, 2500);
-      if (typeof showToast === 'function') showToast('✅ 已发送到收件箱');
-      await fetchInbox();
-      markAllRead();
+      if (typeof showToast === 'function') showToast('✅ 已发送（本会话可见，云端已备份）');
     } catch (e) {
       const msg = friendlyErrorMsg(e);
       setDirectStatus(msg, true);
@@ -447,56 +476,48 @@
     }
   };
 
-  function lastReadId() { return localStorage.getItem(READ_KEY) || ''; }
-  function markAllRead() { if (messages.length) localStorage.setItem(READ_KEY, messages[0].id || ''); updateBadge(); }
-  function updateBadge() {
-    const badge = document.getElementById('inboxBadge'); if (!badge) return;
-    const lid = lastReadId();
-    const unread = messages.filter(function (m) { return !lid || m.id > lid; }).length;
-    if (unread > 0) { badge.style.display = ''; badge.textContent = unread > 99 ? '99+' : unread; }
-    else badge.style.display = 'none';
-  }
-
+  /** 渲染右下角收件箱面板（仅展示当前页面本次会话发送的 sessionMessages，刷新即清空） */
   function renderInbox() {
     const list = document.getElementById('inboxList');
-    if (list) {
-      if (!messages.length) {
-        list.innerHTML = '<div class="inbox-empty">暂无内容，可在上方直接输入文字/添加图片发送，或点「📱 手机扫码」上传</div>';
-      } else {
-        list.innerHTML = messages.map(function (m) {
-          const hasImg = Boolean(m.imgUrl);
-          const normImg = hasImg ? window.normalizeInboxImgUrl(m.imgUrl) : '';
-          const timeText = formatInboxTime(m.time);
-          let s = '<div class="inbox-item" data-id="' + esc(m.id) + '">';
-          s += '<div class="inbox-time">' + esc(timeText) + '</div>';
-          if (m.text !== undefined && m.text !== null && String(m.text).trim() !== '') {
-            s += '<div class="inbox-text">' + esc(m.text).replace(/\n/g, '<br>') + '</div>';
-          }
-          if (hasImg) {
-            s += '<img class="inbox-img" src="' + esc(normImg) + '" referrerpolicy="no-referrer" alt="收件箱图片" title="点击查看大图" onerror="window.onInboxImgError(this,\'' + esc(m.imgUrl) + '\')" onclick="openInboxImgModal(\'' + esc(m.imgUrl) + '\')">';
-            s += '<button type="button" class="inbox-ocr-btn" onclick="runOcr(this,\'' + esc(m.id) + '\',\'' + esc(m.imgUrl) + '\')">🔍 识别图片文字</button>';
-            s += '<div class="inbox-ocr-out" id="ocr-' + esc(m.id) + '" style="display:none"></div>';
-          }
-          if (m.ocrText) {
-            s += '<div class="inbox-ocr-known">识别：' + esc(m.ocrText) + '</div>';
-          }
-          s += '<button type="button" class="inbox-copy" onclick="copyInboxText(this)">📋 复制内容</button>';
-          s += '</div>';
-          return s;
-        }).join('');
-      }
+    if (!list) return;
+    if (!sessionMessages.length) {
+      list.innerHTML = '<div class="inbox-empty">本次会话暂无发送内容（仅显示本页当前会话发送的消息，刷新页面自动清空；所有记录均已在后台云端表格备份）</div>';
+      return;
     }
-    renderAdminInboxTable();
+    list.innerHTML = sessionMessages.map(function (m) {
+      const displayImgRaw = m.localDataUrl || m.imgUrl || '';
+      const hasImg = Boolean(displayImgRaw);
+      const normImg = hasImg ? window.normalizeInboxImgUrl(displayImgRaw) : '';
+      const fullImgTarget = m.imgUrl || m.localDataUrl || '';
+      const timeText = formatInboxTime(m.time);
+      let s = '<div class="inbox-item" data-id="' + esc(m.id) + '">';
+      s += '<div class="inbox-time">' + esc(timeText) + '</div>';
+      if (m.text !== undefined && m.text !== null && String(m.text).trim() !== '') {
+        s += '<div class="inbox-text">' + esc(m.text).replace(/\n/g, '<br>') + '</div>';
+      }
+      if (hasImg) {
+        s += '<img class="inbox-img" src="' + esc(normImg) + '" referrerpolicy="no-referrer" alt="收件箱图片" title="点击查看大图" onerror="window.onInboxImgError(this,\'' + esc(m.imgUrl || '') + '\')" onclick="openInboxImgModal(\'' + esc(fullImgTarget) + '\')">';
+        s += '<button type="button" class="inbox-ocr-btn" onclick="runOcr(this,\'' + esc(m.id) + '\',\'' + esc(displayImgRaw) + '\')">🔍 识别图片文字</button>';
+        s += '<div class="inbox-ocr-out" id="ocr-' + esc(m.id) + '" style="display:none"></div>';
+      }
+      if (m.ocrText) {
+        s += '<div class="inbox-ocr-known">识别：' + esc(m.ocrText) + '</div>';
+      }
+      s += '<button type="button" class="inbox-copy" onclick="copyInboxText(this)">📋 复制内容</button>';
+      s += '</div>';
+      return s;
+    }).join('');
   }
 
+  /** 渲染审计大屏里的后台全量 MN_Inbox 备份表 */
   function renderAdminInboxTable() {
     const tbody = document.getElementById('adminInboxTbody');
     if (!tbody) return;
-    if (!messages.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">暂无收件箱消息（扫码上传文字或图片后自动同步至此）</td></tr>';
+    if (!adminMessages.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">暂无收件箱消息（点击右上角「🔄 刷新收件箱」同步 Google 表格 MN_Inbox 全量备份）</td></tr>';
       return;
     }
-    tbody.innerHTML = messages.map(function (m) {
+    tbody.innerHTML = adminMessages.map(function (m) {
       const hasImg = Boolean(m.imgUrl);
       const hasTxt = m.text !== undefined && m.text !== null && String(m.text).trim() !== '';
       const normImg = hasImg ? window.normalizeInboxImgUrl(m.imgUrl) : '';
@@ -549,6 +570,9 @@
    * 彻底解决 Google Drive 图片在 Tesseract Web Worker 中跨域加载失败的问题
    */
   function prepareImageForOcr(rawImgUrl) {
+    if (rawImgUrl && String(rawImgUrl).startsWith('data:image/')) {
+      return Promise.resolve(rawImgUrl);
+    }
     const normUrl = window.normalizeInboxImgUrl(rawImgUrl);
     const id = extractDriveFileId(rawImgUrl);
     const candidates = [normUrl];
@@ -574,7 +598,6 @@
           try {
             let w = img.naturalWidth || img.width || 800;
             let h = img.naturalHeight || img.height || 600;
-            // 小尺寸图片自动放大到至少 1200px 宽，提高 chi_sim 中文识别准确率
             if (w < 1200) {
               const scale = Math.min(2.5, 1200 / Math.max(1, w));
               w = Math.round(w * scale);
@@ -644,14 +667,12 @@
 
       let res;
       try {
-        // 使用 1.7MB 的 4.0.0_fast 中文包，比默认 20MB 语言包快 12 倍
         res = await recognizeWithLangPath('https://tessdata.projectnaptha.com/4.0.0_fast');
       } catch (e1) {
         res = await recognizeWithLangPath('https://cdn.jsdelivr.net/gh/naptha/tessdata@gh-pages/4.0.0_fast');
       }
 
       const rawText = (res && res.data && res.data.text ? res.data.text : '');
-      // 去除中文字符之间被多余插入的空格，保留自然换行
       const cleanedText = rawText
         .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
         .replace(/([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])/g, '$1$2')
@@ -671,9 +692,11 @@
       btn.textContent = '🔍 重新识别';
       btn.disabled = false;
 
-      const found = messages.find(function (x) { return x && x.id === id; });
-      if (found) {
-        found.ocrText = cleanedText;
+      const foundSession = sessionMessages.find(function (x) { return x && x.id === id; });
+      if (foundSession) foundSession.ocrText = cleanedText;
+      const foundAdmin = adminMessages.find(function (x) { return x && x.id === id; });
+      if (foundAdmin) {
+        foundAdmin.ocrText = cleanedText;
         renderAdminInboxTable();
       }
       if (API) {
@@ -692,7 +715,8 @@
     }
   };
 
-  async function fetchInbox(showErrToast) {
+  /** 仅供审计大屏拉取 MN_Inbox 全量备份列表，不影响右下角当前会话对话框 */
+  async function fetchAdminInbox(showErrToast) {
     if (!API) return;
     try {
       const r = await fetchWithTimeout(
@@ -702,9 +726,8 @@
       );
       const j = await r.json();
       if (j && j.ok && Array.isArray(j.messages)) {
-        messages = j.messages;
-        renderInbox();
-        updateBadge();
+        adminMessages = j.messages;
+        renderAdminInboxTable();
       }
     } catch (e) {
       if (showErrToast && typeof showToast === 'function') {
@@ -713,9 +736,9 @@
     }
   }
 
-  window.refreshAdminInbox = function () {
-    fetchInbox(true).then(function () {
-      if (typeof showToast === 'function') showToast('📨 收件箱已同步');
+  window.refreshAdminInbox = function (silent) {
+    fetchAdminInbox(!silent).then(function () {
+      if (!silent && typeof showToast === 'function') showToast('📨 收件箱云端备份已同步');
     });
   };
 
@@ -738,9 +761,9 @@
       });
     }
 
-    fetchInbox(false);
-    timer = setInterval(function () { fetchInbox(false); }, 15000);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) fetchInbox(false); });
+    // 初始渲染本会话空状态（不再自动轮询或拉取全房间消息）
+    renderInbox();
+    renderAdminInboxTable();
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.initInbox);

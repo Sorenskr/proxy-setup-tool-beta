@@ -54,6 +54,29 @@
     }
     window.normalizeProxyCards = normalizeProxyCards;
 
+    const DEFAULT_NET_TEST_LIST = [
+        { id: 'net_dnsleak', name: 'DNSLeakTest', url: 'dnsleaktest.com', desc: '测 IP DNS 泄漏', visible: true },
+        { id: 'net_whoer',   name: 'Whoer',       url: 'whoer.com',       desc: '综合匿名度评分，看 IP 干不干净、WebRTC/DNS 泄不泄漏', visible: true },
+        { id: 'net_ping0',   name: 'Ping0',       url: 'ping0.cc',        desc: '测 IP 纯净度/风险分', visible: true },
+        { id: 'net_ipinfo',  name: 'IPinfo',      url: 'ipinfo.io',       desc: '查 IP 地理位置、ASN、时区、运营商', visible: true }
+    ];
+
+    function normalizeNetTestCards(list) {
+        if (!Array.isArray(list)) return [];
+        return list.map((c, idx) => {
+            const o = Object.assign({}, c);
+            return {
+                id: String(o.id || ('net_' + (idx + 1))).trim(),
+                name: String(o.name || '').trim(),
+                url: String(o.url || '').trim(),
+                desc: String(o.desc || '').trim(),
+                visible: o.visible !== false
+            };
+        });
+    }
+    window.normalizeNetTestCards = normalizeNetTestCards;
+    window.netTestList = normalizeNetTestCards(DEFAULT_NET_TEST_LIST);
+
     /** 以 main.js 中的硬编码数据作为默认值，保证未配置后台时功能不变 */
     function defaultContent() {
         return {
@@ -71,6 +94,12 @@
             })),
             proxyList: normalizeProxyCards(typeof proxyList !== 'undefined' ? proxyList : []),
             companyWifiList: normalizeCards(typeof companyWifiList !== 'undefined' ? companyWifiList : []),
+            companyWifiDefault: {
+                ssid: '',
+                pwd: ''
+            },
+            netTestTip: '依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App',
+            netTestList: normalizeNetTestCards(DEFAULT_NET_TEST_LIST),
             music: (typeof musicFiles !== 'undefined' ? musicFiles : []).map(n => ({
                 name: String(n).replace(/\.[^/.]+$/, ''),
                 url: 'music/' + n
@@ -97,8 +126,15 @@
             if (Array.isArray(remote[k])) out[k] = normalizeCards(remote[k]);
         });
         if (Array.isArray(remote.proxyList)) out.proxyList = normalizeProxyCards(remote.proxyList);
+        if (Array.isArray(remote.netTestList)) out.netTestList = normalizeNetTestCards(remote.netTestList);
+        if (remote.companyWifiDefault && typeof remote.companyWifiDefault === 'object') {
+            out.companyWifiDefault = {
+                ssid: String(remote.companyWifiDefault.ssid || ''),
+                pwd: String(remote.companyWifiDefault.pwd || '')
+            };
+        }
         if (Array.isArray(remote.music)) out.music = remote.music;
-        ['wifiTitle', 'wifiTip'].forEach(k => {
+        ['wifiTitle', 'wifiTip', 'netTestTip'].forEach(k => {
             if (typeof remote[k] === 'string') out[k] = remote[k];
         });
         if (typeof remote.musicEnabled === 'boolean') out.musicEnabled = remote.musicEnabled;
@@ -264,6 +300,13 @@
             d.companyWifiList = normalizeCards(d.companyWifiList);
             companyWifiList = d.companyWifiList;
         }
+        if (Array.isArray(d.netTestList)) {
+            d.netTestList = normalizeNetTestCards(d.netTestList);
+            window.netTestList = d.netTestList;
+        }
+        if (!d.companyWifiDefault || typeof d.companyWifiDefault !== 'object') {
+            d.companyWifiDefault = { ssid: '', pwd: '' };
+        }
 
         window.BG_CONFIG = Object.assign(
             { mode: 'auto', dayUrl: '', nightUrl: '', particles: true, videoEnabled: false, dayVideoUrl: '', nightVideoUrl: '' },
@@ -278,6 +321,11 @@
         if (tipEl && typeof d.wifiTip === 'string') {
             tipEl.textContent = d.wifiTip;
             tipEl.style.display = d.wifiTip.trim() ? '' : 'none';
+        }
+        const netTestTipEl = document.getElementById('netTestTipText');
+        if (netTestTipEl && typeof d.netTestTip === 'string') {
+            netTestTipEl.textContent = d.netTestTip;
+            netTestTipEl.style.display = d.netTestTip.trim() ? '' : 'none';
         }
 
         // 卡片动效开关
@@ -297,6 +345,8 @@
         if (player) player.style.display = d.musicEnabled === false ? 'none' : '';
 
         if (typeof renderStaticCards === 'function') renderStaticCards();
+        if (typeof window.syncCompanyWifiDefaults === 'function') window.syncCompanyWifiDefaults();
+        if (typeof window.renderNetTestCards === 'function') window.renderNetTestCards();
         if (typeof applyWifiLayoutConfig === 'function') applyWifiLayoutConfig();
         if (typeof window.createParticles === 'function') window.createParticles();
         if (typeof loadTrack === 'function') loadTrack(0);

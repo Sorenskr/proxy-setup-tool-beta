@@ -7,7 +7,17 @@
 const CMS_TOKEN_KEY = 'mnAdminToken';
 let cmsState = null;
 let cmsDirty = false; // 有未保存的本地修改时，不允许被远程内容覆盖
-const cmsCollapsed = {}; // 各分区折叠状态：{ proxy: false, company: false, ... }
+// 审计大屏所有区块默认均为折叠状态（打开页面即收起，点击才展开）
+const cmsCollapsed = {
+    topbar: true,
+    proxy: true,
+    company: true,
+    wifi: true,
+    music: true,
+    bg: true,
+    guide: true,
+    nettest: true
+};
 
 const CMS_SECTIONS = [
     { id: 'cms-sec-proxy',   key: 'proxy',   num: 1, short: '前置代理', title: '🌐 前置代理二维码' },
@@ -15,7 +25,8 @@ const CMS_SECTIONS = [
     { id: 'cms-sec-wifi',    key: 'wifi',    num: 3, short: '基础网络', title: '📶 基础网络卡片（首屏动态卡片）' },
     { id: 'cms-sec-music',   key: 'music',   num: 4, short: '音乐',     title: '🎵 背景音乐歌单' },
     { id: 'cms-sec-bg',      key: 'bg',      num: 5, short: '背景',     title: '🎨 背景与视效' },
-    { id: 'cms-sec-guide',   key: 'guide',   num: 6, short: '教程',     title: '📖 使用教程正文（支持 Markdown / HTML）' }
+    { id: 'cms-sec-guide',   key: 'guide',   num: 6, short: '教程',     title: '📖 使用教程正文（支持 Markdown / HTML）' },
+    { id: 'cms-sec-nettest', key: 'nettest', num: 7, short: '网络测试', title: '🧪 IP 生成页 · 网络测试卡片' }
 ];
 
 // 初始化全局卡片数据的 visible 默认值（默认 true），并挂载日夜切换时的视频背景联动
@@ -322,6 +333,181 @@ window.renderStaticCards = function () {
     });
 };
 
+/* ---------------- 公司 WiFi 二维码自动生成器（WIFI:T:WPA;S:名称;P:密码;;） ---------------- */
+
+window.__lastCompanyWifiQr = null;
+
+window.syncCompanyWifiDefaults = function () {
+    const ssidEl = document.getElementById('companyWifiSsidInput');
+    const pwdEl = document.getElementById('companyWifiPwdInput');
+    if (!ssidEl || !pwdEl) return;
+
+    if (!ssidEl.dataset.boundInput) {
+        ssidEl.dataset.boundInput = '1';
+        ssidEl.addEventListener('input', () => { ssidEl.dataset.userEdited = '1'; });
+        pwdEl.addEventListener('input', () => { pwdEl.dataset.userEdited = '1'; });
+        const onEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); window.generateCompanyWifiQr(); } };
+        ssidEl.addEventListener('keydown', onEnter);
+        pwdEl.addEventListener('keydown', onEnter);
+    }
+
+    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
+    const def = (content && content.companyWifiDefault) || {};
+    const defSsid = String(def.ssid || '').trim();
+    const defPwd = String(def.pwd || '').trim();
+
+    if (!ssidEl.dataset.userEdited) {
+        ssidEl.value = defSsid;
+    }
+    if (!pwdEl.dataset.userEdited) {
+        pwdEl.value = defPwd;
+    }
+
+    if (ssidEl.value.trim()) {
+        window.generateCompanyWifiQr(true);
+    }
+};
+
+window.generateCompanyWifiQr = function (silent) {
+    const ssidEl = document.getElementById('companyWifiSsidInput');
+    const pwdEl = document.getElementById('companyWifiPwdInput');
+    const resBox = document.getElementById('companyWifiGenResult');
+    const qrBox = document.getElementById('companyWifiGenQrBox');
+    const titleEl = document.getElementById('companyWifiGenTitle');
+    const strEl = document.getElementById('companyWifiGenStr');
+    if (!ssidEl || !pwdEl || !resBox || !qrBox) return;
+
+    const ssid = ssidEl.value.trim();
+    const pwd = pwdEl.value.trim();
+    if (!ssid) {
+        resBox.style.display = 'none';
+        if (!silent && typeof showToast === 'function') {
+            showToast('⚠️ 请输入公司 WiFi 名称（SSID）');
+        }
+        return;
+    }
+
+    const wifiString = `WIFI:T:WPA;S:${ssid};P:${pwd};;`;
+    window.__lastCompanyWifiQr = { ssid, pwd, wifiString };
+
+    resBox.style.display = 'flex';
+    if (titleEl) {
+        titleEl.innerHTML = `<span class="company-wifi-gen-ssid">📶 ${esc(ssid)}</span>${pwd ? `<span class="company-wifi-gen-pwd">🔑 密码：<code>${esc(pwd)}</code></span>` : '<span class="company-wifi-gen-pwd">🔓 免密连接</span>'}`;
+    }
+    if (strEl) {
+        strEl.textContent = wifiString;
+    }
+
+    qrBox.innerHTML = '<div style="padding:18px;font-size:12px;color:var(--text-muted);">生成中…</div>';
+    if (typeof waitForQRCode === 'function') {
+        waitForQRCode(() => {
+            QRCode.toDataURL(wifiString, { width: 240, margin: 2 }, (err, dataUrl) => {
+                if (err || !dataUrl) {
+                    qrBox.innerHTML = '<div style="color:#ff5555;font-size:12px;padding:12px;">生成失败</div>';
+                    return;
+                }
+                qrBox.innerHTML = `<img src="${dataUrl}" alt="${esc(ssid)} WiFi 二维码">`;
+                if (!silent && typeof showToast === 'function') {
+                    showToast('✅ 已生成公司 WiFi 二维码，可扫码直连');
+                }
+            });
+        });
+    }
+};
+
+window.openCompanyWifiGenModal = function () {
+    const cur = window.__lastCompanyWifiQr;
+    if (!cur || !cur.ssid) return;
+    if (typeof openModalWithWifiQr === 'function') {
+        openModalWithWifiQr(cur.ssid, cur.wifiString, cur.pwd);
+    }
+};
+
+/* ---------------- ⚡ IP 生成页底部「网络测试」卡片渲染与原地缩放交互 ---------------- */
+
+function normalizeNetTestUrlPair(rawUrl) {
+    const raw = String(rawUrl || '').trim();
+    if (!raw) return { shortUrl: '', fullUrl: '' };
+    const shortUrl = raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    const fullUrl = /^https?:\/\//i.test(raw) ? raw : ('https://' + shortUrl);
+    return { shortUrl, fullUrl };
+}
+
+window.renderNetTestCards = function () {
+    const grid = document.getElementById('netTestGrid');
+    const tipEl = document.getElementById('netTestTipText');
+    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
+    if (tipEl && content && typeof content.netTestTip === 'string') {
+        tipEl.textContent = content.netTestTip;
+        tipEl.style.display = content.netTestTip.trim() ? '' : 'none';
+    }
+    if (!grid) return;
+
+    const list = (content && Array.isArray(content.netTestList))
+        ? content.netTestList
+        : (Array.isArray(window.netTestList) ? window.netTestList : []);
+
+    grid.innerHTML = '';
+    list.forEach((item, idx) => {
+        if (!item || item.visible === false) return;
+        const { shortUrl, fullUrl } = normalizeNetTestUrlPair(item.url);
+        if (!shortUrl) return;
+
+        const cardEl = document.createElement('div');
+        cardEl.className = 'net-test-card';
+        cardEl.setAttribute('data-net-idx', String(idx));
+
+        cardEl.innerHTML = `
+            <div class="net-test-name">${esc(item.name || shortUrl)}</div>
+            <a class="net-test-url" href="${esc(fullUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="点击直达 ${esc(fullUrl)}">
+                <span class="net-url-short">${esc(shortUrl)}</span>
+                <span class="net-url-full">${esc(fullUrl)}</span>
+            </a>
+            <div class="net-test-qr-wrap" title="悬停或点击原地放大二维码">
+                <img class="net-test-qr-img" data-net-qr="${idx}" alt="${esc(item.name)} 二维码">
+            </div>
+            <div class="net-test-desc">${esc(item.desc || '')}</div>
+        `;
+
+        // 鼠标悬停：原地放大展开；鼠标移开：恢复成小卡片
+        cardEl.addEventListener('mouseenter', () => {
+            if (window.matchMedia && window.matchMedia('(hover: hover)').matches) {
+                cardEl._hoverEnterAt = Date.now();
+                cardEl.classList.add('is-expanded');
+            }
+        });
+        cardEl.addEventListener('mouseleave', () => {
+            cardEl.classList.remove('is-expanded');
+        });
+
+        // 点击小二维码或卡片空白处：原地切换展开 / 收起（不新开窗口）
+        cardEl.addEventListener('click', (e) => {
+            if (e.target && e.target.closest && e.target.closest('a.net-test-url')) return;
+            const now = Date.now();
+            // 若刚刚因鼠标移入自动展开（<240ms 内立即点击），保持展开态；再次点击则收起恢复小卡片
+            if (cardEl.classList.contains('is-expanded') && cardEl._hoverEnterAt && (now - cardEl._hoverEnterAt < 240)) {
+                cardEl._hoverEnterAt = 0;
+                return;
+            }
+            cardEl._hoverEnterAt = 0;
+            cardEl.classList.toggle('is-expanded');
+        });
+
+        grid.appendChild(cardEl);
+
+        if (typeof waitForQRCode === 'function') {
+            waitForQRCode(() => {
+                const imgEl = cardEl.querySelector('img.net-test-qr-img');
+                QRCode.toDataURL(fullUrl, { width: 220, margin: 1 }, (err, dataUrl) => {
+                    if (!err && dataUrl && imgEl) {
+                        imgEl.src = dataUrl;
+                    }
+                });
+            });
+        }
+    });
+};
+
 /**
  * 覆盖前端基础网络卡片渲染：过滤掉 visible === false 的卡片
  */
@@ -396,7 +582,23 @@ function normalizeCmsState(state) {
     if (Array.isArray(state.proxyList) && typeof window.normalizeProxyCards === 'function') {
         state.proxyList = window.normalizeProxyCards(state.proxyList);
     }
-    ['baseWifiCards', 'proxyList', 'companyWifiList'].forEach(group => {
+    if (!Array.isArray(state.netTestList)) {
+        state.netTestList = (typeof window.normalizeNetTestCards === 'function' && Array.isArray(window.netTestList))
+            ? window.normalizeNetTestCards(window.netTestList)
+            : [];
+    } else if (typeof window.normalizeNetTestCards === 'function') {
+        state.netTestList = window.normalizeNetTestCards(state.netTestList);
+    }
+    if (!state.companyWifiDefault || typeof state.companyWifiDefault !== 'object') {
+        state.companyWifiDefault = { ssid: '', pwd: '' };
+    } else {
+        state.companyWifiDefault.ssid = String(state.companyWifiDefault.ssid || '');
+        state.companyWifiDefault.pwd = String(state.companyWifiDefault.pwd || '');
+    }
+    if (typeof state.netTestTip !== 'string') {
+        state.netTestTip = '依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App';
+    }
+    ['baseWifiCards', 'proxyList', 'companyWifiList', 'netTestList'].forEach(group => {
         if (Array.isArray(state[group])) {
             state[group].forEach((item, idx) => {
                 if (!item) return;
@@ -466,11 +668,12 @@ window.cmsSetCardHelpType = function (index, value) {
 window.cmsToggleSection = function (key) {
     cmsCollapsed[key] = !cmsCollapsed[key];
     const sec = CMS_SECTIONS.find(s => s.key === key);
-    if (!sec) return;
-    const el = document.getElementById(sec.id);
+    const elId = sec ? sec.id : (key === 'topbar' ? 'cmsTopBarSection' : '');
+    if (!elId) return;
+    const el = document.getElementById(elId);
     if (el) {
         el.classList.toggle('is-collapsed', !!cmsCollapsed[key]);
-        const btn = el.querySelector('.cms-collapse-btn');
+        const btn = el.querySelector(':scope > .cms-sec-head .cms-collapse-btn') || el.querySelector('.cms-collapse-btn');
         if (btn) {
             btn.setAttribute('aria-expanded', cmsCollapsed[key] ? 'false' : 'true');
             btn.innerHTML = cmsCollapsed[key] ? '展开 ▾' : '折叠 ▴';
@@ -562,6 +765,7 @@ function renderCmsPanel() {
     else normalizeCmsState(cmsState);
 
     const allCollapsed = CMS_SECTIONS.every(s => !!cmsCollapsed[s.key]);
+    const topCollapsed = !!cmsCollapsed.topbar;
     const anchorBtns = CMS_SECTIONS.map(s => `
         <button type="button" class="cms-anchor-tag" onclick="cmsJumpToSection(${s.num})" title="快捷键: Ctrl/Cmd + Alt + ${s.num}">
             <span class="cms-anchor-idx">${s.num}</span>${s.short}
@@ -569,25 +773,32 @@ function renderCmsPanel() {
     `).join('');
 
     box.innerHTML = `
-        <div class="cms-card cms-top-bar">
-            <div class="cms-card-head">
-                <h4>🛠️ 站点内容管理台（改动保存后全员实时生效）${cmsDirty ? '<span class="cms-dirty-dot" title="有未保存的改动">● 未保存</span>' : ''}</h4>
-                <div class="cms-actions">
+        <div class="cms-card cms-section cms-top-bar ${topCollapsed ? 'is-collapsed' : ''}" id="cmsTopBarSection">
+            <div class="cms-sec-head" onclick="cmsToggleSection('topbar')">
+                <div class="cms-sec-title-wrap">
+                    <h4>🛠️ 站点内容管理台（改动保存后全员实时生效）${cmsDirty ? '<span class="cms-dirty-dot" title="有未保存的改动">● 未保存</span>' : ''}</h4>
+                </div>
+                <div class="cms-actions" onclick="event.stopPropagation()">
                     <button type="button" class="cms-shortcut-hint-btn" onclick="openShortcutModal()" title="点击查看键盘快捷键">⌨️ 快捷键：按 <kbd>?</kbd> 查看</button>
                     <button type="button" class="btn-ghost" onclick="cmsReload()">↺ 还原未保存的修改</button>
                     <button type="button" class="btn-primary" onclick="cmsSaveContent()" title="快捷键: Ctrl/Cmd + Alt + S">🚀 保存并全网下发</button>
+                    <button type="button" class="cms-collapse-btn" aria-expanded="${topCollapsed ? 'false' : 'true'}" onclick="cmsToggleSection('topbar')">
+                        ${topCollapsed ? '展开 ▾' : '折叠 ▴'}
+                    </button>
                 </div>
             </div>
-            <div class="cms-anchor-bar" role="navigation" aria-label="后台分区快速定位">
-                <span class="cms-anchor-label">📍 快速直达：</span>
-                ${anchorBtns}
-                <button type="button" class="cms-anchor-toggle-all" onclick="cmsToggleAllSections()">
-                    ${allCollapsed ? '📂 全部展开' : '📁 全部折叠'}
-                </button>
+            <div class="cms-sec-body">
+                <div class="cms-anchor-bar" role="navigation" aria-label="后台分区快速定位">
+                    <span class="cms-anchor-label">📍 快速直达：</span>
+                    ${anchorBtns}
+                    <button type="button" class="cms-anchor-toggle-all" onclick="cmsToggleAllSections()">
+                        ${allCollapsed ? '📂 全部展开' : '📁 全部折叠'}
+                    </button>
+                </div>
+                <div class="cms-tip">图片与音乐可上传到 Google Drive（单个 ≤ 8MB），也可直接粘贴外链 URL。列表内切换「显示/隐藏」后请点击「保存并全网下发」（或按 <code>Ctrl/Cmd + Alt + S</code>）生效。</div>
+                ${window.hasCloudApi && window.hasCloudApi() ? '' : '<div class="cms-tip cms-warn">⚠️ 尚未部署云端后台（REPORT_API_URL 为空）：下面的改动可以点「保存」先存到这台设备的浏览器里立即生效，但其他设备看不到；部署好 Google 后端后再保存一次即可全网同步。</div>'}
+                <div class="cms-tip" id="cmsCloudStatus">${cmsStatusText()}</div>
             </div>
-            <div class="cms-tip">图片与音乐可上传到 Google Drive（单个 ≤ 8MB），也可直接粘贴外链 URL。列表内切换「显示/隐藏」后请点击「保存并全网下发」（或按 <code>Ctrl/Cmd + Alt + S</code>）生效。</div>
-            ${window.hasCloudApi && window.hasCloudApi() ? '' : '<div class="cms-tip cms-warn">⚠️ 尚未部署云端后台（REPORT_API_URL 为空）：下面的改动可以点「保存」先存到这台设备的浏览器里立即生效，但其他设备看不到；部署好 Google 后端后再保存一次即可全网同步。</div>'}
-            <div class="cms-tip" id="cmsCloudStatus">${cmsStatusText()}</div>
         </div>
 
         ${cmsSectionProxy('proxyList', CMS_SECTIONS[0])}
@@ -596,6 +807,7 @@ function renderCmsPanel() {
         ${cmsSectionMusic(CMS_SECTIONS[3])}
         ${cmsSectionBackground(CMS_SECTIONS[4])}
         ${cmsSectionGuide(CMS_SECTIONS[5])}
+        ${cmsSectionNetTest(CMS_SECTIONS[6])}
     `;
 }
 
@@ -1174,8 +1386,23 @@ function cmsSectionProxy(group, sec) {
         ? '下方管理前台展示的前置代理二维码卡片（当卡片名称与上方 PROXY_Nodes 节点显示名一致时，自动关联探测状态）。'
         : '已按「是否已上传二维码」自动归类；可直接切换「显示/隐藏」开关控制前台展示，用 ↑ ↓ 调整顺序。';
 
+    const companyGenDefaultBox = !isProxy ? `
+        <div class="cms-subbox" style="margin-bottom:16px;">
+            <div class="cms-subbox-title">⚡ 公司 WiFi 二维码自动生成器 · 默认值配置（前台自动填充 &amp; 生成二维码）</div>
+            <div class="cms-tip" style="margin-top:4px;margin-bottom:10px;">
+                配置后，前台「🏢 公司 WiFi 二维码」区块将默认填入该 WiFi 名称与密码，并按标准协议 <code>WIFI:T:WPA;S:名称;P:密码;;</code> 自动生成二维码，手机扫码即可一键连 WiFi。
+            </div>
+            <div class="cms-grid">
+                <div class="cms-field"><label>默认 WiFi 名称（SSID）</label>
+                    <input type="text" placeholder="例如：Advert" value="${esc((cmsState.companyWifiDefault && cmsState.companyWifiDefault.ssid) || '')}" oninput="cmsSetCompanyWifiDefault('ssid',this.value)"></div>
+                <div class="cms-field"><label>默认 WiFi 密码</label>
+                    <input type="text" placeholder="例如：Jingda2025" value="${esc((cmsState.companyWifiDefault && cmsState.companyWifiDefault.pwd) || '')}" oninput="cmsSetCompanyWifiDefault('pwd',this.value)"></div>
+            </div>
+        </div>
+    ` : '';
+
     const body = `
-        ${isProxy ? renderProxyNodesSubbox() : ''}
+        ${isProxy ? renderProxyNodesSubbox() : companyGenDefaultBox}
         <div class="cms-tip">${tipText}</div>
         ${rows || '<div class="cms-tip">暂无条目</div>'}
         <button type="button" class="cms-add" onclick="cmsAdd('${group}')">➕ 新增条目</button>`;
@@ -1400,7 +1627,96 @@ function cmsSectionGuide(sec) {
     return cmsWrapSection(sec, body, '');
 }
 
+/* ---------------- 7. IP 生成页 · 网络测试卡片 ---------------- */
+
+function cmsRefreshNetTestQrPreviews() {
+    if (typeof waitForQRCode !== 'function') return;
+    waitForQRCode(() => {
+        const list = (cmsState && cmsState.netTestList) || [];
+        list.forEach((item, idx) => {
+            const imgEl = document.getElementById('cmsNetQrPreview_' + idx);
+            if (!imgEl || !item) return;
+            const { fullUrl } = normalizeNetTestUrlPair(item.url);
+            if (!fullUrl) {
+                imgEl.removeAttribute('src');
+                return;
+            }
+            QRCode.toDataURL(fullUrl, { width: 120, margin: 1 }, (err, dataUrl) => {
+                if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
+            });
+        });
+    });
+}
+
+window.cmsMoveNetTest = function (index, dir) {
+    const list = cmsState && cmsState.netTestList;
+    if (!Array.isArray(list) || !list[index]) return;
+    const target = index + dir;
+    if (target < 0 || target >= list.length) return;
+    cmsDirty = true;
+    const tmp = list[index];
+    list[index] = list[target];
+    list[target] = tmp;
+    renderCmsPanel();
+};
+
+function cmsSectionNetTest(sec) {
+    const list = (cmsState && cmsState.netTestList) || [];
+    const rows = list.map((c, i) => {
+        const isVisible = c.visible !== false;
+        const { shortUrl, fullUrl } = normalizeNetTestUrlPair(c.url);
+        return `
+        <div class="cms-item ${isVisible ? '' : 'is-hidden'}">
+            <div class="cms-item-head">
+                <span class="cms-badge wifi">${esc(c.name || '未命名检测站')}</span>
+                <span style="font-size:12px;color:var(--text-muted);font-family:Consolas,monospace;">${esc(shortUrl || '未填网址')}</span>
+                ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
+                <span class="cms-spacer"></span>
+                ${cmsRenderVisSwitch('netTestList', i, c)}
+                <button type="button" class="cms-move" title="上移" onclick="cmsMoveNetTest(${i},-1)">↑</button>
+                <button type="button" class="cms-move" title="下移" onclick="cmsMoveNetTest(${i},1)">↓</button>
+            </div>
+            <div class="cms-grid">
+                <div class="cms-field"><label>检测网站名称</label>
+                    <input type="text" placeholder="例如：DNSLeakTest" value="${esc(c.name || '')}" oninput="cmsSet('netTestList',${i},'name',this.value)"></div>
+                <div class="cms-field"><label>网址（修改后自动重新生成二维码）</label>
+                    <input type="text" placeholder="例如：dnsleaktest.com" value="${esc(c.url || '')}" oninput="cmsSet('netTestList',${i},'url',this.value)"></div>
+                <div class="cms-field" style="grid-column: 1 / -1;"><label>介绍说明文字（展开大卡片时显示在二维码下方）</label>
+                    <input type="text" placeholder="例如：测 IP DNS 泄漏" value="${esc(c.desc || '')}" oninput="cmsSet('netTestList',${i},'desc',this.value)"></div>
+            </div>
+            <div class="cms-item-bar">
+                <img id="cmsNetQrPreview_${i}" class="cms-thumb" style="width:44px;height:44px;background:#fff;padding:3px;border-radius:6px;" alt="二维码预览">
+                <span style="font-size:12px;color:var(--text-muted);">二维码目标：<code id="cmsNetUrlCode_${i}">${esc(fullUrl || '—')}</code></span>
+                <span class="cms-spacer"></span>
+                <button type="button" class="cms-del" onclick="cmsDel('netTestList',${i})">🗑 删除</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    setTimeout(cmsRefreshNetTestQrPreviews, 10);
+
+    const body = `
+        <div class="cms-subbox" style="margin-bottom:14px;">
+            <div class="cms-subbox-title">📝 「网络测试」顶部提示语</div>
+            <div class="cms-grid">
+                <div class="cms-field" style="grid-column: 1 / -1;"><label>顶部提示文案（留空则隐藏）</label>
+                    <input type="text" value="${esc(cmsState.netTestTip || '')}" oninput="cmsSetText('netTestTip',this.value)"></div>
+            </div>
+        </div>
+        <div class="cms-tip">管理「⚡ IP 生成」页面最下方的「🌐 网络测试」卡片。支持增删改、控制显隐，修改网址后二维码将自动重新生成。</div>
+        ${rows || '<div class="cms-tip">暂无检测网站卡片</div>'}
+        <button type="button" class="cms-add" onclick="cmsAdd('netTestList')">➕ 新增检测网站卡片</button>`;
+
+    return cmsWrapSection(sec, body, cmsVisibleStatBadge('netTestList'));
+}
+
 /* ---------------- 交互函数 ---------------- */
+
+window.cmsSetCompanyWifiDefault = function (field, value) {
+    cmsDirty = true;
+    cmsState.companyWifiDefault = cmsState.companyWifiDefault || { ssid: '', pwd: '' };
+    cmsState.companyWifiDefault[field] = value;
+};
 
 window.cmsSet = function (group, index, key, value) {
     const item = (cmsState[group] || [])[index];
@@ -1410,6 +1726,20 @@ window.cmsSet = function (group, index, key, value) {
     // WiFi 协议生码模式下，名称/密码变更时同步刷新二维码内容
     if (group === 'baseWifiCards' && item.wifiString && (key === 'name' || key === 'pwd')) {
         item.wifiString = `WIFI:T:WPA;S:${item.name};P:${item.pwd || ''};;`;
+    }
+    // 网络测试卡片修改网址时，实时重新生成后台预览二维码与前台二维码
+    if (group === 'netTestList' && key === 'url') {
+        const { fullUrl } = normalizeNetTestUrlPair(value);
+        const codeEl = document.getElementById('cmsNetUrlCode_' + index);
+        if (codeEl) codeEl.textContent = fullUrl || '—';
+        const imgEl = document.getElementById('cmsNetQrPreview_' + index);
+        if (imgEl && fullUrl && typeof waitForQRCode === 'function') {
+            waitForQRCode(() => {
+                QRCode.toDataURL(fullUrl, { width: 120, margin: 1 }, (err, dataUrl) => {
+                    if (!err && dataUrl) imgEl.src = dataUrl;
+                });
+            });
+        }
     }
 };
 
@@ -1487,6 +1817,14 @@ window.cmsAdd = function (group) {
         });
     } else if (group === 'music') {
         cmsState[group].push({ name: '新曲目', url: '' });
+    } else if (group === 'netTestList') {
+        cmsState[group].push({
+            id: 'net_' + Date.now(),
+            name: '新检测网站',
+            url: 'ipinfo.io',
+            desc: '检测代理 IP 纯净度与匿名性',
+            visible: true
+        });
     } else {
         cmsState[group].push({ name: '新条目', imgPath: '', visible: true });
     }
@@ -1649,11 +1987,11 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
-    // Ctrl/Cmd + Alt + 1~6（跳转分区）与 Ctrl/Cmd + Alt + S（保存内容）
+    // Ctrl/Cmd + Alt + 1~7（跳转分区）与 Ctrl/Cmd + Alt + S（保存内容）
     if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey) {
-        const digitMatch = /^(?:Digit|Numpad)([1-6])$/.exec(e.code || '');
-        const keyNum = digitMatch ? Number(digitMatch[1]) : (/^[1-6]$/.test(e.key || '') ? Number(e.key) : 0);
-        if (keyNum >= 1 && keyNum <= 6) {
+        const digitMatch = /^(?:Digit|Numpad)([1-7])$/.exec(e.code || '');
+        const keyNum = digitMatch ? Number(digitMatch[1]) : (/^[1-7]$/.test(e.key || '') ? Number(e.key) : 0);
+        if (keyNum >= 1 && keyNum <= 7) {
             e.preventDefault();
             window.cmsJumpToSection(keyNum);
             return;

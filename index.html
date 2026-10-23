@@ -154,7 +154,28 @@
 
                 <h3 class="wifi-section-title mt-40">前置代理二维码（扫码一键添加）</h3>
                 <div class="proxy-grid" id="proxyGrid"></div>
-                <h3 class="wifi-section-title mt-40">公司 WiFi 二维码</h3>
+                <h3 class="wifi-section-title mt-40">🏢 公司 WiFi 二维码</h3>
+                <div class="company-wifi-gen-card" id="companyWifiGenCard">
+                    <div class="company-wifi-gen-inputs">
+                        <div class="company-wifi-gen-field">
+                            <label for="companyWifiSsidInput">📶 WiFi 名称（SSID）</label>
+                            <input type="text" id="companyWifiSsidInput" placeholder="输入 WiFi 名称，如：Advert">
+                        </div>
+                        <div class="company-wifi-gen-field">
+                            <label for="companyWifiPwdInput">🔑 WiFi 密码</label>
+                            <input type="text" id="companyWifiPwdInput" placeholder="输入 WiFi 密码，如：Jingda2025">
+                        </div>
+                        <button type="button" class="btn-primary company-wifi-gen-btn" onclick="generateCompanyWifiQr()">⚡ 生成二维码</button>
+                    </div>
+                    <div class="company-wifi-gen-result" id="companyWifiGenResult" style="display: none;">
+                        <div class="company-wifi-gen-qr" id="companyWifiGenQrBox" onclick="openCompanyWifiGenModal()" title="点击全屏放大二维码"></div>
+                        <div class="company-wifi-gen-meta">
+                            <div class="company-wifi-gen-title" id="companyWifiGenTitle"></div>
+                            <div class="company-wifi-gen-str" id="companyWifiGenStr"></div>
+                            <div class="company-wifi-gen-hint">📱 手机相机或微信扫码即可一键连 WiFi（点击左侧二维码可放大）</div>
+                        </div>
+                    </div>
+                </div>
                 <div class="company-grid" id="companyGrid"></div>
             </section>
 
@@ -200,6 +221,15 @@
                             <div class="qr-box" id="quickV2rayQr"><div class="qr-placeholder">等待生成中<br>生成后点击可全屏放大</div></div>
                         </div>
                     </div>
+                </div>
+
+                <!-- 网络测试模块 -->
+                <div class="net-test-section" id="netTestSection">
+                    <div class="net-test-header">
+                        <h3 class="wifi-section-title mb-0">🌐 网络测试</h3>
+                        <p class="net-test-tip" id="netTestTipText">依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App</p>
+                    </div>
+                    <div class="net-test-grid" id="netTestGrid"></div>
                 </div>
             </section>
 
@@ -293,100 +323,140 @@
             <section class="tab-content" id="adminPanel" role="tabpanel" aria-labelledby="adminTabBtn">
                 <div class="cms-shortcut-banner" onclick="openShortcutModal()" role="button" tabindex="0" title="点击查看快捷键说明">
                     <span>⌨️ 快捷键：按 <kbd>?</kbd> 查看</span>
-                    <span class="cms-shortcut-banner-sub">Ctrl/Cmd + Alt + 1~6 跳转分区 · Ctrl/Cmd + Alt + S 保存内容</span>
+                    <span class="cms-shortcut-banner-sub">Ctrl/Cmd + Alt + 1~7 跳转分区 · Ctrl/Cmd + Alt + S 保存内容</span>
                 </div>
-                <div class="form-card">
-                    <h2 class="wifi-section-title admin-title">🔒 行为审计与风控大屏</h2>
-                    <p class="admin-desc">系统已激活全量数据访问权限。可查验全团队的访问特征、位置信标、业务打表记录及建议反馈。</p>
-                    <div class="btn-group">
-                        <button type="button" class="btn-primary" onclick="refreshAdminLogs()">🔄 同步云端流水</button>
+
+                <!-- 审计大屏区块 1：概览与同步 -->
+                <div class="cms-card cms-section is-collapsed" id="adminOverviewSection">
+                    <div class="cms-sec-head" onclick="toggleAdminBlock('adminOverviewSection')">
+                        <div class="cms-sec-title-wrap">
+                            <h4>🔒 行为审计与风控大屏</h4>
+                            <span class="cms-sec-stat">系统全量数据访问与流水同步</span>
+                        </div>
+                        <button type="button" class="cms-collapse-btn" aria-expanded="false" onclick="event.stopPropagation(); toggleAdminBlock('adminOverviewSection')">展开 ▾</button>
+                    </div>
+                    <div class="cms-sec-body">
+                        <p class="admin-desc" style="margin-top:0;">系统已激活全量数据访问权限。可查验全团队的访问特征、位置信标、业务打表记录及建议反馈。</p>
+                        <div class="btn-group">
+                            <button type="button" class="btn-primary" onclick="refreshAdminLogs()">🔄 同步云端流水</button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="chart-card">
-                    <div class="chart-head">
-                        <div class="chart-title-wrap">
+                <!-- 审计大屏区块 2：历史趋势图 -->
+                <div class="cms-card cms-section is-collapsed" id="adminChartSection">
+                    <div class="cms-sec-head" onclick="toggleAdminBlock('adminChartSection')">
+                        <div class="cms-sec-title-wrap">
                             <h4>📈 平台出勤访问与交互频次历史趋势</h4>
-                            <span class="chart-caliber-note" id="chartCaliberNote">统计口径：按访问次数（仅统计 ACCESS_LOG 真实记录，趋势图始终显示真实值）</span>
+                            <span class="cms-sec-stat">ECharts 实时统计图表</span>
                         </div>
-                        <div class="chart-caliber-switch" role="group" aria-label="访问量统计口径切换">
-                            <button type="button" class="chart-caliber-btn active" id="caliberBtn-pv" data-caliber="pv" onclick="setChartCaliber('pv')">按访问次数</button>
-                            <button type="button" class="chart-caliber-btn" id="caliberBtn-uv" data-caliber="uv" onclick="setChartCaliber('uv')">按 IP+日期 去重</button>
-                        </div>
+                        <button type="button" class="cms-collapse-btn" aria-expanded="false" onclick="event.stopPropagation(); toggleAdminBlock('adminChartSection')">展开 ▾</button>
                     </div>
-
-                    <div class="chart-toolbar">
-                        <div class="chart-date-group">
-                            <label for="chartDateFrom">开始日期</label>
-                            <input type="date" id="chartDateFrom" class="chart-date-input">
-                            <span class="chart-date-sep">至</span>
-                            <label for="chartDateTo">结束日期</label>
-                            <input type="date" id="chartDateTo" class="chart-date-input">
+                    <div class="cms-sec-body">
+                        <div class="chart-head">
+                            <div class="chart-title-wrap">
+                                <span class="chart-caliber-note" id="chartCaliberNote">统计口径：按访问次数（仅统计 ACCESS_LOG 真实记录，趋势图始终显示真实值）</span>
+                            </div>
+                            <div class="chart-caliber-switch" role="group" aria-label="访问量统计口径切换">
+                                <button type="button" class="chart-caliber-btn active" id="caliberBtn-pv" data-caliber="pv" onclick="setChartCaliber('pv')">按访问次数</button>
+                                <button type="button" class="chart-caliber-btn" id="caliberBtn-uv" data-caliber="uv" onclick="setChartCaliber('uv')">按 IP+日期 去重</button>
+                            </div>
                         </div>
-                        <div class="chart-preset-group" role="group" aria-label="快捷日期区间">
-                            <button type="button" class="chart-preset-btn" data-preset="7d" onclick="setChartDatePreset('7d')">近7天</button>
-                            <button type="button" class="chart-preset-btn" data-preset="30d" onclick="setChartDatePreset('30d')">近30天</button>
-                            <button type="button" class="chart-preset-btn active" data-preset="all" onclick="setChartDatePreset('all')">全部</button>
+
+                        <div class="chart-toolbar">
+                            <div class="chart-date-group">
+                                <label for="chartDateFrom">开始日期</label>
+                                <input type="date" id="chartDateFrom" class="chart-date-input">
+                                <span class="chart-date-sep">至</span>
+                                <label for="chartDateTo">结束日期</label>
+                                <input type="date" id="chartDateTo" class="chart-date-input">
+                            </div>
+                            <div class="chart-preset-group" role="group" aria-label="快捷日期区间">
+                                <button type="button" class="chart-preset-btn" data-preset="7d" onclick="setChartDatePreset('7d')">近7天</button>
+                                <button type="button" class="chart-preset-btn" data-preset="30d" onclick="setChartDatePreset('30d')">近30天</button>
+                                <button type="button" class="chart-preset-btn active" data-preset="all" onclick="setChartDatePreset('all')">全部</button>
+                            </div>
+                            <button type="button" class="btn-primary chart-query-btn" onclick="queryTrafficRange()">🔍 查询</button>
                         </div>
-                        <button type="button" class="btn-primary chart-query-btn" onclick="queryTrafficRange()">🔍 查询</button>
-                    </div>
 
-                    <div class="chart-kpi-bar" id="chartKpiBar">
-                        <div class="chart-kpi-item is-access"><span class="kpi-label">🌐 页面访问 (ACCESS_LOG)</span><strong class="kpi-val" id="kpiAccessCount">0</strong></div>
-                        <div class="chart-kpi-item is-single"><span class="kpi-label">⚡ 快捷生成 (SINGLE_GEN)</span><strong class="kpi-val" id="kpiSingleGenCount">0</strong></div>
-                        <div class="chart-kpi-item is-test"><span class="kpi-label">🔍 代理测试 (PROXY_TEST)</span><strong class="kpi-val" id="kpiProxyTestCount">0</strong></div>
-                        <div class="chart-kpi-item is-feedback"><span class="kpi-label">💡 建议反馈 (FEEDBACK)</span><strong class="kpi-val" id="kpiFeedbackCount">0</strong></div>
-                    </div>
+                        <div class="chart-kpi-bar" id="chartKpiBar">
+                            <div class="chart-kpi-item is-access"><span class="kpi-label">🌐 页面访问 (ACCESS_LOG)</span><strong class="kpi-val" id="kpiAccessCount">0</strong></div>
+                            <div class="chart-kpi-item is-single"><span class="kpi-label">⚡ 快捷生成 (SINGLE_GEN)</span><strong class="kpi-val" id="kpiSingleGenCount">0</strong></div>
+                            <div class="chart-kpi-item is-test"><span class="kpi-label">🔍 代理测试 (PROXY_TEST)</span><strong class="kpi-val" id="kpiProxyTestCount">0</strong></div>
+                            <div class="chart-kpi-item is-feedback"><span class="kpi-label">💡 建议反馈 (FEEDBACK)</span><strong class="kpi-val" id="kpiFeedbackCount">0</strong></div>
+                        </div>
 
-                    <div id="trafficChart" class="chart-box"></div>
+                        <div id="trafficChart" class="chart-box"></div>
+                    </div>
                 </div>
 
                 <div id="adminControlContainer"></div>
                 <div id="cmsContainer"></div>
 
-                <!-- 扫码收件箱审计区块 -->
-                <div class="cms-card" id="adminInboxSection">
-                    <div class="cms-card-head">
-                        <h4>📨 扫码收件箱（房间：MatrixNode · Google 表格 MN_Inbox）</h4>
-                        <div class="cms-actions">
-                            <button type="button" class="btn-ghost" onclick="openInboxQr()">📱 打开上传二维码</button>
-                            <button type="button" class="btn-primary" onclick="if(window.refreshAdminInbox)window.refreshAdminInbox()">🔄 刷新收件箱</button>
+                <!-- 扫码收件箱审计区块（默认折叠） -->
+                <div class="cms-card cms-section is-collapsed" id="adminInboxSection">
+                    <div class="cms-sec-head" onclick="toggleAdminBlock('adminInboxSection')">
+                        <div class="cms-sec-title-wrap">
+                            <h4>📨 扫码收件箱（房间：MatrixNode · Google 表格 MN_Inbox）</h4>
+                            <span class="cms-sec-stat">全量云端备份记录</span>
                         </div>
+                        <button type="button" class="cms-collapse-btn" aria-expanded="false" onclick="event.stopPropagation(); toggleAdminBlock('adminInboxSection')">展开 ▾</button>
                     </div>
-                    <div class="table-scroll" style="margin-top: 12px;">
-                        <table class="batch-table" id="adminInboxTable">
-                            <thead>
-                                <tr>
-                                    <th scope="col">时间</th>
-                                    <th scope="col">类型</th>
-                                    <th scope="col">文字</th>
-                                    <th scope="col">图片缩略图</th>
-                                    <th scope="col">OCR 文字</th>
-                                    <th scope="col">图片链接</th>
-                                </tr>
-                            </thead>
-                            <tbody id="adminInboxTbody">
-                                <tr><td colspan="6" class="table-empty">正在拉取扫码收件箱记录...</td></tr>
-                            </tbody>
-                        </table>
+                    <div class="cms-sec-body">
+                        <div class="cms-card-head" style="margin-bottom: 10px;">
+                            <span style="font-size:12.5px; color:var(--text-muted);">所有设备通过扫码或收件箱提交的文字与图片均完整备份在 Google 表格 <code>MN_Inbox</code> 中。</span>
+                            <div class="cms-actions">
+                                <button type="button" class="btn-ghost" onclick="openInboxQr()">📱 打开上传二维码</button>
+                                <button type="button" class="btn-primary" onclick="if(window.refreshAdminInbox)window.refreshAdminInbox()">🔄 刷新收件箱</button>
+                            </div>
+                        </div>
+                        <div class="table-scroll" style="margin-top: 8px;">
+                            <table class="batch-table" id="adminInboxTable">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">时间</th>
+                                        <th scope="col">类型</th>
+                                        <th scope="col">文字</th>
+                                        <th scope="col">图片缩略图</th>
+                                        <th scope="col">OCR 文字</th>
+                                        <th scope="col">图片链接</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adminInboxTbody">
+                                    <tr><td colspan="6" class="table-empty">展开后自动拉取或点击右上角「🔄 刷新收件箱」同步记录...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
-                <div class="table-scroll">
-                    <table class="batch-table" id="adminLogTable">
-                        <thead>
-                            <tr>
-                                <th scope="col">时间标量 (Timestamp)</th>
-                                <th scope="col">操作源 (Operator/Host)</th>
-                                <th scope="col">信标定点 (Location/Gateway)</th>
-                                <th scope="col">行为分类 (Event)</th>
-                                <th scope="col">流水详情溯源 (Payload)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="5" class="table-empty">正在从 Google Sheets 通道拉取流水总线...</td></tr>
-                        </tbody>
-                    </table>
+                <!-- 实时流水溯源表区块（默认折叠） -->
+                <div class="cms-card cms-section is-collapsed" id="adminLogSection">
+                    <div class="cms-sec-head" onclick="toggleAdminBlock('adminLogSection')">
+                        <div class="cms-sec-title-wrap">
+                            <h4>📋 实时行为流水溯源总表（Google 表格 MN_Logs）</h4>
+                            <span class="cms-sec-stat">访问 / 生成 / 测试 / 反馈明细</span>
+                        </div>
+                        <button type="button" class="cms-collapse-btn" aria-expanded="false" onclick="event.stopPropagation(); toggleAdminBlock('adminLogSection')">展开 ▾</button>
+                    </div>
+                    <div class="cms-sec-body">
+                        <div class="table-scroll" style="margin-top: 4px;">
+                            <table class="batch-table" id="adminLogTable">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">时间标量 (Timestamp)</th>
+                                        <th scope="col">操作源 (Operator/Host)</th>
+                                        <th scope="col">信标定点 (Location/Gateway)</th>
+                                        <th scope="col">行为分类 (Event)</th>
+                                        <th scope="col">流水详情溯源 (Payload)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="5" class="table-empty">正在从 Google Sheets 通道拉取流水总线...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -441,6 +511,7 @@
                 <div class="cms-shortcut-row"><span>跳转到「4. 音乐」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>4</kbd></span></div>
                 <div class="cms-shortcut-row"><span>跳转到「5. 背景」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>5</kbd></span></div>
                 <div class="cms-shortcut-row"><span>跳转到「6. 教程」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>6</kbd></span></div>
+                <div class="cms-shortcut-row"><span>跳转到「7. 网络测试」分区</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>7</kbd></span></div>
                 <div class="cms-shortcut-row"><span>保存并下发后台内容</span><span class="cms-kbd-group"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd></span></div>
                 <div class="cms-shortcut-row"><span>弹出 / 关闭快捷键说明面板</span><span class="cms-kbd-group"><kbd>?</kbd> / <kbd>Esc</kbd></span></div>
             </div>

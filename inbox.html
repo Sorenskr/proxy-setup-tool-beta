@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0d1117">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no,email=no,address=no">
+    <title>📡 扫码传内容</title>
+    <link rel="icon" href="images/logo.png" type="image/png">
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            min-height: 100dvh;
+            background: radial-gradient(circle at 50% 0%, #162238 0%, #0d1117 65%);
+            color: #e6edf3;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+            -webkit-text-size-adjust: 100%;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: max(20px, env(safe-area-inset-top)) 16px max(14px, env(safe-area-inset-bottom));
+        }
+        .m-wrap {
+            width: 100%;
+            max-width: 520px;
+            margin: 0 auto;
+        }
+        .m-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 6px 0 6px;
+        }
+        .m-head-icon {
+            font-size: 24px;
+            line-height: 1;
+        }
+        .m-head h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 700;
+            color: #f0f6fc;
+            letter-spacing: 0.2px;
+        }
+        .m-sub {
+            color: #8b949e;
+            font-size: 13.5px;
+            margin: 0 0 14px;
+            line-height: 1.5;
+        }
+        .m-net-banner {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(248, 81, 73, 0.14);
+            border: 1px solid rgba(248, 81, 73, 0.42);
+            color: #ffa198;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.45;
+        }
+        .m-card {
+            background: rgba(22, 27, 34, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(240, 246, 252, 0.12);
+            border-radius: 16px;
+            padding: 14px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+        }
+        .m-textarea {
+            width: 100%;
+            min-height: 136px;
+            background: transparent;
+            border: 0;
+            color: #e6edf3;
+            padding: 4px 2px;
+            font-size: 16px;
+            line-height: 1.55;
+            resize: vertical;
+            outline: none;
+            font-family: inherit;
+        }
+        .m-textarea::placeholder {
+            color: #6e7681;
+        }
+        .m-preview {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            padding: 8px 10px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+        }
+        .m-preview img {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            flex-shrink: 0;
+        }
+        .m-preview-name {
+            flex: 1;
+            font-size: 12.5px;
+            color: #c9d1d9;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .m-preview-clear {
+            background: transparent;
+            border: 0;
+            color: #8b949e;
+            font-size: 16px;
+            padding: 4px 8px;
+            cursor: pointer;
+        }
+        .m-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #21262d;
+        }
+        .m-file-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 14px;
+            border: 1px dashed #388bfd;
+            border-radius: 10px;
+            color: #58a6ff;
+            background: rgba(56, 139, 253, 0.12);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            user-select: none;
+        }
+        .m-send-btn {
+            flex: 1;
+            max-width: 185px;
+            padding: 11px 18px;
+            border: 0;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #2ea043 0%, #238636 100%);
+            color: #ffffff;
+            font-size: 15.5px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(46, 160, 67, 0.35);
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+        .m-send-btn:active {
+            transform: scale(0.98);
+        }
+        .m-send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .m-msg {
+            margin-top: 14px;
+            font-size: 14px;
+            min-height: 22px;
+            font-weight: 600;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+        .m-msg.is-ok {
+            color: #3fb950;
+        }
+        .m-msg.is-err {
+            color: #f85149;
+        }
+        .m-history {
+            margin-top: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .m-history-item {
+            background: rgba(22, 27, 34, 0.72);
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 13.5px;
+        }
+        .m-history-time {
+            font-size: 11.5px;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+        .m-history-text {
+            color: #e6edf3;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .m-history-img {
+            max-width: 100%;
+            max-height: 180px;
+            border-radius: 8px;
+            margin-top: 6px;
+            display: block;
+            border: 1px solid #30363d;
+        }
+        .m-foot {
+            width: 100%;
+            max-width: 520px;
+            margin: 24px auto 0;
+            text-align: right;
+        }
+        .m-foot a {
+            font-size: 11px;
+            color: #6e7681;
+            opacity: 0.42;
+            text-decoration: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="m-wrap">
+        <div class="m-head">
+            <span class="m-head-icon">📡</span>
+            <h1>扫码传内容</h1>
+        </div>
+        <p class="m-sub">支持纯文字、纯图片或图文一起发送，提交后自动同步至云端收件箱备份</p>
+
+        <div id="mNetBanner" class="m-net-banner">
+            <span>⚠️ 请开启代理后重试（当前无法连接 Google 云端服务，请确认手机已开启代理）</span>
+        </div>
+
+        <div class="m-card">
+            <textarea id="mInboxTxt" class="m-textarea" placeholder="在此输入文字内容（也可直接添加下方图片一起发送）…"></textarea>
+
+            <div id="mInboxPreviewWrap" class="m-preview">
+                <img id="mInboxPreviewImg" src="" alt="预览">
+                <div id="mInboxPreviewName" class="m-preview-name"></div>
+                <button type="button" id="mInboxClearImg" class="m-preview-clear" aria-label="移除图片">✕</button>
+            </div>
+
+            <div class="m-bar">
+                <label class="m-file-btn">
+                    📎 添加图片
+                    <input type="file" id="mInboxImg" accept="image/*" style="display:none">
+                </label>
+                <button id="mInboxBtn" type="button" class="m-send-btn">🚀 发送</button>
+            </div>
+        </div>
+
+        <div id="mInboxMsg" class="m-msg"></div>
+        <div id="mSessionHistory" class="m-history"></div>
+    </div>
+
+    <div class="m-foot">
+        <a href="https://drop.lol" target="_blank" rel="noopener noreferrer">drop.lol</a>
+    </div>
+
+    <script>
+    (function () {
+        var API_URL = "https://script.google.com/macros/s/AKfycbx-1u4836W99nFQxVkhbDKdc9uBnZEBWtI88m6PwhoTiAtkM4QdPFXmu8YMr_2SdYhvDg/exec";
+        var DEFAULT_ROOM = "MatrixNode";
+        var PROXY_ERR_MSG = "请开启代理后重试（网络不可达，请确认已挂代理后重试）";
+
+        var params;
+        try { params = new URLSearchParams(location.search); } catch (e) { params = null; }
+        var room = (params && params.get('room')) || DEFAULT_ROOM;
+
+        var fileInput = document.getElementById('mInboxImg');
+        var previewWrap = document.getElementById('mInboxPreviewWrap');
+        var previewImg = document.getElementById('mInboxPreviewImg');
+        var previewName = document.getElementById('mInboxPreviewName');
+        var clearBtn = document.getElementById('mInboxClearImg');
+        var txtEl = document.getElementById('mInboxTxt');
+        var btnEl = document.getElementById('mInboxBtn');
+        var msgEl = document.getElementById('mInboxMsg');
+        var netBanner = document.getElementById('mNetBanner');
+        var historyEl = document.getElementById('mSessionHistory');
+        var selectedFile = null;
+
+        function esc(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
+        function setMsg(text, isOk) {
+            msgEl.textContent = text || '';
+            msgEl.className = 'm-msg ' + (text ? (isOk ? 'is-ok' : 'is-err') : '');
+        }
+
+        function fetchWithTimeout(url, options, timeoutMs) {
+            var ms = timeoutMs || 20000;
+            var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            var tid = ctrl ? setTimeout(function () { ctrl.abort(); }, ms) : null;
+            var opts = Object.assign({}, options || {});
+            if (ctrl) opts.signal = ctrl.signal;
+            return fetch(url, opts).then(function (r) {
+                if (tid) clearTimeout(tid);
+                return r;
+            }, function () {
+                if (tid) clearTimeout(tid);
+                throw new Error(PROXY_ERR_MSG);
+            });
+        }
+
+        // 页面打开时轻量探测 Google Apps Script 连通性，未挂梯子时友好提示，绝不白屏
+        function probeNetwork() {
+            fetchWithTimeout(API_URL + '?action=ping&t=' + Date.now(), { cache: 'no-store' }, 8000)
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (j && j.ok && netBanner) netBanner.style.display = 'none';
+                })
+                .catch(function () {
+                    if (netBanner) netBanner.style.display = 'flex';
+                });
+        }
+        probeNetwork();
+
+        function updatePreview(file) {
+            selectedFile = file || null;
+            if (!selectedFile) {
+                previewWrap.style.display = 'none';
+                previewImg.removeAttribute('src');
+                previewName.textContent = '';
+                fileInput.value = '';
+                return;
+            }
+            previewWrap.style.display = 'flex';
+            previewName.textContent = selectedFile.name + ' (' + Math.max(1, Math.round(selectedFile.size / 1024)) + ' KB)';
+            try {
+                previewImg.src = URL.createObjectURL(selectedFile);
+            } catch (e) {}
+        }
+
+        fileInput.onchange = function () {
+            var f = this.files && this.files[0];
+            updatePreview(f || null);
+        };
+
+        clearBtn.onclick = function () {
+            updatePreview(null);
+        };
+
+        txtEl.addEventListener('paste', function (e) {
+            var items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].type && items[i].type.indexOf('image') !== -1) {
+                    var f = items[i].getAsFile();
+                    if (f) updatePreview(f);
+                    break;
+                }
+            }
+        });
+
+        function compressImageFile(file) {
+            return new Promise(function (resolve, reject) {
+                var reader = new FileReader();
+                reader.onerror = function () { reject(new Error('读取图片失败')); };
+                reader.onload = function () {
+                    var img = new Image();
+                    img.onerror = function () { reject(new Error('解析图片失败')); };
+                    img.onload = function () {
+                        var max = 1800;
+                        var w = img.width || 1000;
+                        var h = img.height || 800;
+                        if (w > max || h > max) {
+                            if (w >= h) { h = Math.round(h * max / w); w = max; }
+                            else { w = Math.round(w * max / h); h = max; }
+                        }
+                        var c = document.createElement('canvas');
+                        c.width = w;
+                        c.height = h;
+                        var ctx = c.getContext('2d');
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, w, h);
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.imageSmoothingQuality = 'high';
+                        ctx.drawImage(img, 0, 0, w, h);
+                        resolve(c.toDataURL('image/jpeg', 0.90));
+                    };
+                    img.src = reader.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function appendLocalSentCard(text, dataUrl, timeStr) {
+            if (!historyEl) return;
+            var div = document.createElement('div');
+            div.className = 'm-history-item';
+            var html = '<div class="m-history-time">✅ 本次会话已发送 · ' + esc(timeStr || new Date().toLocaleTimeString()) + '</div>';
+            if (text) html += '<div class="m-history-text">' + esc(text) + '</div>';
+            if (dataUrl) html += '<img class="m-history-img" src="' + esc(dataUrl) + '" alt="已发送图片">';
+            div.innerHTML = html;
+            historyEl.insertBefore(div, historyEl.firstChild);
+        }
+
+        btnEl.onclick = async function () {
+            var text = txtEl.value.trim();
+            var file = selectedFile || (fileInput.files && fileInput.files[0]);
+            if (!text && !file) {
+                setMsg('⚠️ 请输入文字或添加图片后再发送', false);
+                return;
+            }
+            btnEl.disabled = true;
+            setMsg(file ? '⏳ 正在高清处理并上传内容…' : '⏳ 正在发送…', true);
+            try {
+                var body = {
+                    action: 'INBOX_SUBMIT',
+                    room: room,
+                    ua: navigator.userAgent,
+                    text: text
+                };
+                var localDataUrl = '';
+                if (file) {
+                    localDataUrl = await compressImageFile(file);
+                    body.type = 'image';
+                    body.base64 = localDataUrl.split(',')[1] || '';
+                    body.mimeType = 'image/jpeg';
+                    body.fileName = file.name ? file.name.replace(/\.[^.]+$/, '.jpg') : 'inbox.jpg';
+                } else {
+                    body.type = 'text';
+                }
+
+                var r = await fetchWithTimeout(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify(body)
+                }, 25000);
+
+                var j = null;
+                try {
+                    j = await r.json();
+                } catch (parseErr) {
+                    throw new Error(PROXY_ERR_MSG);
+                }
+
+                if (!j || !j.ok) {
+                    throw new Error((j && j.error) || '提交失败');
+                }
+
+                if (netBanner) netBanner.style.display = 'none';
+                setMsg('✅ 发送成功！已写入云端收件箱备份', true);
+                appendLocalSentCard(text, localDataUrl, (j.message && j.message.time) || '');
+                txtEl.value = '';
+                updatePreview(null);
+            } catch (err) {
+                if (netBanner) netBanner.style.display = 'flex';
+                var raw = (err && err.message) ? String(err.message) : '';
+                if (!raw || /failed to fetch|networkerror|load failed|abort|timeout|fetch/i.test(raw)) {
+                    raw = PROXY_ERR_MSG;
+                }
+                setMsg('❌ ' + raw, false);
+            } finally {
+                btnEl.disabled = false;
+            }
+        };
+    })();
+    </script>
+</body>
+</html>
+
