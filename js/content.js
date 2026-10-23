@@ -469,7 +469,7 @@
         const itemsMap = (window.probeState && window.probeState.items) || {};
         const rec = (card.id && itemsMap[card.id]) || (card.name && itemsMap[card.name]) || null;
 
-        let status = 'up';
+        let status = 'unknown';
         let isManual = false;
         if (card.statusOverride === 'up') {
             status = 'up';
@@ -477,10 +477,12 @@
         } else if (card.statusOverride === 'down') {
             status = 'down';
             isManual = true;
+        } else if (rec && rec.status === 'up') {
+            status = 'up';
         } else if (rec && rec.status === 'down') {
             status = 'down';
         } else {
-            status = 'up';
+            status = 'unknown';
         }
 
         const color = status === 'up' ? 'green' : (status === 'down' ? 'red' : 'grey');
@@ -492,7 +494,8 @@
         const lastCheckedAt = String((rec && rec.lastCheckedAt) || (window.probeState && window.probeState.updatedAt) || '').trim();
         const checkedAgoText = lastCheckedAt ? window.formatProbeCheckedAgo(lastCheckedAt) : '';
         const locationText = rec ? [rec.country || '', rec.city || ''].filter(Boolean).join(' ') : '';
-        const latencyMs = (rec && Number(rec.latencyMs) > 0) ? Number(rec.latencyMs) : 0;
+        const rawLat = (rec && Number(rec.latencyMs) > 0) ? Number(rec.latencyMs) : 0;
+        const latencyMs = rawLat > 4000 ? (rawLat - 4000) : rawLat;
 
         return {
             status,

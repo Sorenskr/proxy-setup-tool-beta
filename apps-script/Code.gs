@@ -28,6 +28,10 @@ var INBOX_HEADERS = ['消息ID','时间','房间号','类型','文字内容','�
 var INBOX_ROOM = 'MatrixNode';   // 扫码上传口令，前端必须一致，可改成你自己的口令
 var INBOX_LIMIT = 100;
 
+var PROXY_NODES_SHEET_NAME = 'PROXY_Nodes';
+var PROXY_NODES_HEADERS = ['节点ID', '显示名', 'server', 'port', 'auth', 'sni', 'insecure', '是否上线', '更新时间'];
+var DEFAULT_PROBE_INTERVAL_MIN = 15;
+
 /* ====================== 入口 ====================== */
 
 function doGet(e) {
@@ -45,7 +49,10 @@ function doGet(e) {
       return jsonOut({ ok: true, time: nowStr() });
     }
     if (action === 'probe' || action === 'probes') {
-      return jsonOut({ ok: true, probe: getProbeResult() });
+      return jsonOut({ ok: true, probe: getProbeResult(), probeIntervalMin: getProbeIntervalMin() });
+    }
+    if (action === 'proxynodes') {
+      return jsonOut({ ok: true, probeIntervalMin: getProbeIntervalMin(), nodes: readProxyNodes_(false) });
     }
     if (action === 'inboxpage') {
       return HtmlService.createHtmlOutput(getInboxPageHtml(p.room || ''))
@@ -127,6 +134,35 @@ function doPost(e) {
         requireToken_(data);
         saveProbeResult(data);
         return jsonOut({ ok: true, probe: getProbeResult() });
+
+      case 'LIST_PROXY_NODES':
+        requireToken_(data);
+        return jsonOut({ ok: true, probeIntervalMin: getProbeIntervalMin(), nodes: readProxyNodes_(false) });
+
+      case 'SAVE_PROXY_NODE':
+        requireToken_(data);
+        var savedNode = saveProxyNode_(data.node || data);
+        if (data.probeIntervalMin !== undefined) saveProbeIntervalMin(data.probeIntervalMin);
+        return jsonOut({ ok: true, node: savedNode, probeIntervalMin: getProbeIntervalMin(), nodes: readProxyNodes_(false) });
+
+      case 'DELETE_PROXY_NODE':
+        requireToken_(data);
+        deleteProxyNode_(data.id);
+        return jsonOut({ ok: true, probeIntervalMin: getProbeIntervalMin(), nodes: readProxyNodes_(false) });
+
+      case 'TOGGLE_PROXY_NODE':
+        requireToken_(data);
+        toggleProxyNodeOnline_(data.id, data.online);
+        return jsonOut({ ok: true, probeIntervalMin: getProbeIntervalMin(), nodes: readProxyNodes_(false) });
+
+      case 'SET_PROBE_INTERVAL':
+        requireToken_(data);
+        var newInterval = saveProbeIntervalMin(data.probeIntervalMin);
+        return jsonOut({ ok: true, probeIntervalMin: newInterval, config: getConfig() });
+
+      case 'GET_PROBE_TASK':
+        requireToken_(data);
+        return jsonOut(getProbeTask_(Boolean(data.force)));
 
       // ---------- 扫码收件箱（手机公开接口，校验房间号） ----------
       case 'INBOX_SUBMIT':
@@ -318,10 +354,40 @@ function readLogsByRange(fromStr, toStr, pageParam, pageSizeParam) {
 
 /* ====================== 配置 / 内容存储 ====================== */
 
+function getProbeIntervalMin() {
+  var props = PropertiesService.getScriptProperties();
+  var direct = parseInt(props.getProperty('probeIntervalMin') || '', 10);
+  if (!isNaN(direct) && direct >= 1) return direct;
+  var raw = props.getProperty('SITE_CONFIG');
+  if (raw) {
+    try {
+      var cfg = JSON.parse(raw) || {};
+      var fromCfg = parseInt(cfg.probeIntervalMin || '', 10);
+      if (!isNaN(fromCfg) && fromCfg >= 1) return fromCfg;
+    } catch (e) {}
+  }
+  return DEFAULT_PROBE_INTERVAL_MIN;
+}
+
+function saveProbeIntervalMin(val) {
+  var n = parseInt(val, 10);
+  if (isNaN(n) || n < 1) n = DEFAULT_PROBE_INTERVAL_MIN;
+  if (n > 1440) n = 1440;
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('probeIntervalMin', String(n));
+  var raw = props.getProperty('SITE_CONFIG');
+  var cfg = {};
+  if (raw) { try { cfg = JSON.parse(raw) || {}; } catch (e) { cfg = {}; } }
+  cfg.probeIntervalMin = n;
+  props.setProperty('SITE_CONFIG', JSON.stringify(cfg));
+  return n;
+}
+
 function getConfig() {
   var raw = PropertiesService.getScriptProperties().getProperty('SITE_CONFIG');
   var cfg = {};
   if (raw) { try { cfg = JSON.parse(raw) || {}; } catch (e) { cfg = {}; } }
+  cfg.probeIntervalMin = getProbeIntervalMin();
   return cfg;
 }
 
@@ -331,6 +397,9 @@ function saveConfig(data) {
    'cfgShowSoftRouter', 'cfgShowWifiCards'].forEach(function (k) {
     if (data[k] !== undefined) cfg[k] = data[k];
   });
+  if (data.probeIntervalMin !== undefined) {
+    cfg.probeIntervalMin = saveProbeIntervalMin(data.probeIntervalMin);
+  }
   PropertiesService.getScriptProperties().setProperty('SITE_CONFIG', JSON.stringify(cfg));
 }
 
@@ -351,10 +420,13 @@ function getProbeResult() {
   if (raw) {
     try {
       var s = JSON.parse(raw);
-      if (s && s.items) return s;
+      if (s && s.items) {
+        s.probeIntervalMin = getProbeIntervalMin();
+        return s;
+      }
     } catch (e) {}
   }
-  return { updatedAt: '', checkedAt: '', items: {}, results: [] };
+  return { updatedAt: '', checkedAt: '', probeIntervalMin: getProbeIntervalMin(), items: {}, results: [] };
 }
 
 function saveProbeResult(data) {
@@ -410,6 +482,204 @@ function saveProbeResult(data) {
   state.results = results;
   PropertiesService.getScriptProperties().setProperty('PROBE_RESULT', JSON.stringify(state));
   return state;
+}
+
+/* ====================== 前置代理节点表 (PROXY_Nodes) 与探测调度 ====================== */
+
+function parseChinaTimeMs_(str) {
+  if (!str) return 0;
+  var s = String(str).trim();
+  var m = /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/.exec(s);
+  if (m) {
+    var pad = function (n) { return ('0' + parseInt(n, 10)).slice(-2); };
+    var iso = m[1] + '-' + pad(m[2]) + '-' + pad(m[3]) + 'T' + pad(m[4]) + ':' + pad(m[5]) + ':' + pad(m[6] || 0) + '+08:00';
+    var t = Date.parse(iso);
+    return isNaN(t) ? 0 : t;
+  }
+  var d = Date.parse(s);
+  return isNaN(d) ? 0 : d;
+}
+
+function toBool_(v, defaultVal) {
+  if (v === undefined || v === null || v === '') return defaultVal;
+  if (typeof v === 'boolean') return v;
+  var s = String(v).trim().toLowerCase();
+  if (s === 'false' || s === '0' || s === 'no' || s === 'off' || s === '下线') return false;
+  if (s === 'true' || s === '1' || s === 'yes' || s === 'on' || s === '上线') return true;
+  return defaultVal;
+}
+
+/**
+ * 读取 PROXY_Nodes 工作表
+ * @param {boolean} includeSecret 为 true 时返回 auth 密码（仅限后端探测脚本 GET_PROBE_TASK 调用）；为 false 时绝不返回明文密码
+ */
+function readProxyNodes_(includeSecret) {
+  var sh = getSheet_(PROXY_NODES_SHEET_NAME, PROXY_NODES_HEADERS);
+  var last = sh.getLastRow();
+  if (last < 2) return [];
+  var rows = sh.getRange(2, 1, last - 1, PROXY_NODES_HEADERS.length).getValues();
+  var list = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var id = String(r[0] || '').trim();
+    var name = String(r[1] || '').trim();
+    var server = String(r[2] || '').trim();
+    if (!id && !name && !server) continue;
+    if (!id) id = 'pnode_' + (i + 1);
+    var port = parseInt(r[3], 10);
+    if (isNaN(port) || port <= 0) port = 443;
+    var rawAuth = String(r[4] || '');
+    var sni = String(r[5] || '').trim();
+    var insecure = toBool_(r[6], true);
+    var online = toBool_(r[7], true);
+    var updatedAt = formatCellTime_(r[8]);
+
+    var item = {
+      id: id,
+      name: name || id,
+      server: server,
+      port: port,
+      hasAuth: Boolean(rawAuth),
+      sni: sni,
+      insecure: insecure,
+      online: online,
+      updatedAt: updatedAt
+    };
+    if (includeSecret === true) {
+      item.auth = rawAuth;
+    }
+    list.push(item);
+  }
+  return list;
+}
+
+/**
+ * 新增或更新单个前置代理节点（写入 PROXY_Nodes）
+ * 若编辑已有节点时 auth 留空，自动保留原表中的密码，避免前端因不回显密码而覆盖为空
+ */
+function saveProxyNode_(node) {
+  if (!node || typeof node !== 'object') throw new Error('节点参数无效');
+  var sh = getSheet_(PROXY_NODES_SHEET_NAME, PROXY_NODES_HEADERS);
+  var id = String(node.id || '').trim() || ('pnode_' + new Date().getTime() + '_' + Math.floor(Math.random() * 1000));
+  var name = String(node.name || '').trim();
+  var server = String(node.server || '').trim();
+  if (!name) throw new Error('请填写节点显示名');
+  if (!server) throw new Error('请填写节点 server 地址');
+  var port = parseInt(node.port, 10);
+  if (isNaN(port) || port <= 0) port = 443;
+  var sni = String(node.sni || '').trim();
+  var insecure = toBool_(node.insecure, true);
+  var online = toBool_(node.online !== undefined ? node.online : node.enabled, true);
+  var incomingAuth = node.auth !== undefined && node.auth !== null ? String(node.auth) : '';
+  var now = nowStr();
+
+  var last = sh.getLastRow();
+  var foundRow = -1;
+  var existingAuth = '';
+  if (last >= 2) {
+    var rows = sh.getRange(2, 1, last - 1, 5).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').trim() === id) {
+        foundRow = i + 2;
+        existingAuth = String(rows[i][4] || '');
+        break;
+      }
+    }
+  }
+
+  var finalAuth = incomingAuth !== '' ? incomingAuth : existingAuth;
+  var rowValues = [id, name, server, port, finalAuth, sni, insecure, online, now];
+
+  if (foundRow > 0) {
+    sh.getRange(foundRow, 1, 1, PROXY_NODES_HEADERS.length).setValues([rowValues]);
+  } else {
+    sh.appendRow(rowValues);
+  }
+
+  return {
+    id: id,
+    name: name,
+    server: server,
+    port: port,
+    hasAuth: Boolean(finalAuth),
+    sni: sni,
+    insecure: insecure,
+    online: online,
+    updatedAt: now
+  };
+}
+
+function deleteProxyNode_(id) {
+  var targetId = String(id || '').trim();
+  if (!targetId) throw new Error('缺少节点 ID');
+  var sh = getSheet_(PROXY_NODES_SHEET_NAME, PROXY_NODES_HEADERS);
+  var last = sh.getLastRow();
+  if (last < 2) return false;
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0] || '').trim() === targetId) {
+      sh.deleteRow(i + 2);
+      return true;
+    }
+  }
+  return false;
+}
+
+function toggleProxyNodeOnline_(id, online) {
+  var targetId = String(id || '').trim();
+  if (!targetId) throw new Error('缺少节点 ID');
+  var sh = getSheet_(PROXY_NODES_SHEET_NAME, PROXY_NODES_HEADERS);
+  var last = sh.getLastRow();
+  if (last < 2) throw new Error('未找到该节点');
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  var flag = toBool_(online, true);
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0] || '').trim() === targetId) {
+      sh.getRange(i + 2, 8).setValue(flag);
+      sh.getRange(i + 2, 9).setValue(nowStr());
+      return true;
+    }
+  }
+  throw new Error('未找到该节点');
+}
+
+/**
+ * 供 GitHub Actions 探测脚本调用：
+ * 返回当前配置的间隔分钟数、上次探测时间、是否已满间隔需执行探测，以及所有已上线节点配置
+ */
+function getProbeTask_(forceRun) {
+  var intervalMin = getProbeIntervalMin();
+  var state = getProbeResult();
+  var lastCheckedAt = String(state.checkedAt || state.updatedAt || '').trim();
+  var lastMs = parseChinaTimeMs_(lastCheckedAt);
+  var nowMs = new Date().getTime();
+  var elapsedMin = lastMs > 0 ? Math.max(0, Math.floor((nowMs - lastMs) / 60000)) : 999999;
+  var shouldRun = Boolean(forceRun) || (lastMs <= 0) || (elapsedMin >= intervalMin);
+  var allNodes = readProxyNodes_(true);
+  var onlineNodes = [];
+  for (var i = 0; i < allNodes.length; i++) {
+    var n = allNodes[i];
+    if (n.online !== false && n.server && n.port) {
+      onlineNodes.push({
+        id: n.id,
+        name: n.name,
+        type: 'hysteria2',
+        server: n.server,
+        port: n.port,
+        auth: n.auth || '',
+        sni: n.sni || '',
+        insecure: n.insecure !== false
+      });
+    }
+  }
+  return {
+    ok: true,
+    probeIntervalMin: intervalMin,
+    lastCheckedAt: lastCheckedAt,
+    elapsedMin: lastMs > 0 ? elapsedMin : null,
+    shouldRun: shouldRun,
+    nodes: onlineNodes
+  };
 }
 
 /* ====================== 文件上传 (Google Drive) ====================== */

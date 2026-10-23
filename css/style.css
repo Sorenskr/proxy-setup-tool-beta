@@ -884,6 +884,16 @@ body.light-mode .proxy-unavail-mask {
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
     border: 1px solid rgba(255, 255, 255, 0.18);
 }
+.proxy-unavail-mask { flex-direction: column; gap: 10px; }
+.proxy-temp-view-btn {
+    padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.38);
+    background: rgba(59, 130, 246, 0.88); color: #ffffff; font-size: 12px; font-weight: 600;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35); transition: all 0.2s ease;
+}
+.proxy-temp-view-btn:hover {
+    background: #2563eb; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
+
+}
 /* 保证标题状态圆点与副文案在不可用遮罩下也可清晰辨识：将圆点/标题与副文案层级设为高于遮罩，遮罩重点模糊二维码区域 */
 .proxy-card .proxy-card-title,
 .proxy-card .proxy-meta {

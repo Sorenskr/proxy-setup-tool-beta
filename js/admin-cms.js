@@ -49,7 +49,7 @@ const CMS_SECTIONS = [
 function proxyStatusLabel(status) {
     if (status === 'up') return '节点可用';
     if (status === 'down') return '节点断网 / 不可用';
-    return '暂未检测';
+    return '待检测';
 }
 
 /**
@@ -60,7 +60,7 @@ function buildProxyMetaHtml(item, st) {
     let statusLine = '';
     if (st.status === 'up') {
         const loc = st.locationText || '海外出口';
-        const lat = st.latencyMs !== null && st.latencyMs !== undefined && st.latencyMs !== ''
+        const lat = st.latencyMs !== null && st.latencyMs !== undefined && st.latencyMs !== '' && Number(st.latencyMs) > 0
             ? `${st.latencyMs} ms`
             : '正常';
         statusLine = `<div class="proxy-meta-line proxy-meta-up">📍 出口：${esc(loc)} · ⚡ ${esc(lat)}</div>`;
@@ -70,9 +70,9 @@ function buildProxyMetaHtml(item, st) {
             : (st.downAt || '—');
         statusLine = `<div class="proxy-meta-line proxy-meta-down">⚠️ 断网：${esc(downTime)}</div>`;
     } else {
-        statusLine = `<div class="proxy-meta-line proxy-meta-unknown">⏳ 状态：待探测</div>`;
+        statusLine = `<div class="proxy-meta-line proxy-meta-unknown">⚪ 状态：待检测</div>`;
     }
-    const checkLine = `<div class="proxy-meta-line proxy-meta-check">🕒 ${esc(st.checkedAgoText || '暂未检测')}</div>`;
+    const checkLine = `<div class="proxy-meta-line proxy-meta-check">🕒 ${esc(st.checkedAgoText || '待检测')}</div>`;
     return `
         <div class="proxy-meta-line proxy-meta-online">📅 首次上线：${esc(firstOnline)}</div>
         ${statusLine}
@@ -83,7 +83,7 @@ function buildProxyMetaHtml(item, st) {
 const dismissedProxyMasks = new Set();
 
 /**
- * 点击遮罩层：一键移除当前卡片的不可用毛玻璃遮罩，恢复查看/放大与复制
+ * 点击「点击临时查看」按钮：临时去掉当前卡片的毛玻璃遮罩，显示二维码和一键复制按钮（刷新页面恢复）
  */
 window.dismissProxyMask = function (idx, event) {
     if (event && typeof event.stopPropagation === 'function') {
@@ -99,11 +99,11 @@ window.dismissProxyMask = function (idx, event) {
         const copyBtn = cardEl.querySelector('.proxy-copy-btn');
         if (copyBtn) copyBtn.style.display = '';
     }
-    if (typeof showToast === 'function') showToast('🔓 已移除遮罩，可正常扫码或点击放大');
+    if (typeof showToast === 'function') showToast('🔓 已临时解除遮罩（刷新页面后恢复）');
 };
 
 /**
- * 点击前置代理卡片：若当前被遮罩盖住，点击一下直接移除遮罩；已移除遮罩或可用状态时点击放大二维码
+ * 点击前置代理卡片：仅在处于未解除的 down 遮罩态时阻止放大；up / unknown（待检测）或已点「点击临时查看」时正常放大二维码
  */
 window.handleProxyCardClick = function (idx) {
     const list = typeof proxyList !== 'undefined' && Array.isArray(proxyList) ? proxyList : [];
@@ -111,9 +111,8 @@ window.handleProxyCardClick = function (idx) {
     if (!item) return;
     const st = typeof window.getProxyStatus === 'function'
         ? window.getProxyStatus(item)
-        : { status: 'up' };
+        : { status: 'unknown' };
     if (st.status === 'down' && !dismissedProxyMasks.has(Number(idx))) {
-        window.dismissProxyMask(idx);
         return;
     }
 
@@ -174,6 +173,7 @@ window.copyProxyUrl = function (idx, event) {
 
 /**
  * 静默刷新 #proxyGrid 中各前置代理卡片的状态点、复制按钮、遮罩与副文案（不重建 DOM，避免闪烁）
+ * 规则：unknown（待检测）只显示灰色圆点、不加遮罩；仅 status === 'down'（且未点击临时查看）时才盖遮罩
  */
 window.updateProxyCardsInPlace = function () {
     const proxyGrid = document.getElementById('proxyGrid');
@@ -186,11 +186,11 @@ window.updateProxyCardsInPlace = function () {
         if (!item) return;
         const st = typeof window.getProxyStatus === 'function'
             ? window.getProxyStatus(item)
-            : { status: 'up', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '暂未检测' };
-        const isUp = st.status !== 'down' || dismissedProxyMasks.has(idx);
+            : { status: 'unknown', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '待检测' };
+        const isMasked = st.status === 'down' && !dismissedProxyMasks.has(idx);
 
-        cardEl.classList.toggle('is-available', isUp);
-        cardEl.classList.toggle('is-unavailable', !isUp);
+        cardEl.classList.toggle('is-available', !isMasked);
+        cardEl.classList.toggle('is-unavailable', isMasked);
 
         const dotEl = cardEl.querySelector('.proxy-status-dot');
         if (dotEl) {
@@ -200,7 +200,7 @@ window.updateProxyCardsInPlace = function () {
 
         const copyBtn = cardEl.querySelector('.proxy-copy-btn');
         if (copyBtn) {
-            copyBtn.style.display = isUp ? '' : 'none';
+            copyBtn.style.display = isMasked ? 'none' : '';
         }
 
         const metaEl = cardEl.querySelector('.proxy-meta');
@@ -210,14 +210,16 @@ window.updateProxyCardsInPlace = function () {
 
         const maskEl = cardEl.querySelector('.proxy-unavail-mask');
         if (maskEl) {
-            maskEl.style.display = isUp ? 'none' : '';
+            maskEl.style.display = isMasked ? '' : 'none';
         }
     });
 };
 
 /**
  * 覆盖前端静态卡片渲染：过滤掉 visible === false 的前置代理与公司 WiFi 卡片
- * 前置代理卡片支持 qrMode=image|link、呼吸状态灯、可用时右上角复制按钮、副文案及不可用毛玻璃遮罩（点击遮罩可移除）
+ * 1. 待探测/空 (unknown) -> 灰色"待检测"小圆点，【无遮罩】，二维码正常可扫可复制
+ * 2. 明确 down -> 呼吸红点 + 毛玻璃遮罩「暂时无法使用，请联系负责人」+「点击临时查看」按钮
+ * 3. up -> 呼吸绿点，无遮罩
  */
 window.renderStaticCards = function () {
     const proxyGrid = document.getElementById('proxyGrid');
@@ -232,19 +234,19 @@ window.renderStaticCards = function () {
 
         const st = typeof window.getProxyStatus === 'function'
             ? window.getProxyStatus(item)
-            : { status: 'up', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '暂未检测' };
-        const isUp = st.status !== 'down' || dismissedProxyMasks.has(idx);
+            : { status: 'unknown', firstOnlineAt: item.firstOnlineAt || '', checkedAgoText: '待检测' };
+        const isMasked = st.status === 'down' && !dismissedProxyMasks.has(idx);
         const isLinkMode = item.qrMode === 'link';
         const initImgSrc = isLinkMode ? '' : esc(item.imgPath || '');
 
         const cardEl = document.createElement('div');
-        cardEl.className = `wifi-card proxy-card ${isUp ? 'is-available' : 'is-unavailable'}`;
+        cardEl.className = `wifi-card proxy-card ${isMasked ? 'is-unavailable' : 'is-available'}`;
         cardEl.setAttribute('data-proxy-idx', String(idx));
         cardEl.setAttribute('data-proxy-id', String(item.id || ''));
         cardEl.onclick = () => window.handleProxyCardClick(idx);
 
         cardEl.innerHTML = `
-            <button type="button" class="proxy-copy-btn" style="${isUp ? '' : 'display:none;'}" onclick="copyProxyUrl(${idx}, event)" title="复制前置代理链接">复制</button>
+            <button type="button" class="proxy-copy-btn" style="${isMasked ? 'display:none;' : ''}" onclick="copyProxyUrl(${idx}, event)" title="复制前置代理链接">复制</button>
             <div class="wifi-qr-box">
                 <img src="${initImgSrc}" class="qr-img" data-qr-idx="${idx}" alt="${esc(item.name)}" ${isLinkMode ? '' : 'onerror="imgFallback(this)"'}>
             </div>
@@ -255,8 +257,9 @@ window.renderStaticCards = function () {
             <div class="proxy-meta">
                 ${buildProxyMetaHtml(item, st)}
             </div>
-            <div class="proxy-unavail-mask" style="${isUp ? 'display:none;' : ''}" onclick="dismissProxyMask(${idx}, event)" title="点击此处移除遮罩查看二维码">
-                <div class="proxy-unavail-text">暂时无法使用，请联系负责人<div style="font-size:11px;font-weight:400;opacity:0.82;margin-top:4px;">（点击可移除遮罩查看二维码）</div></div>
+            <div class="proxy-unavail-mask" style="${isMasked ? '' : 'display:none;'}" onclick="event.stopPropagation()">
+                <div class="proxy-unavail-text">暂时无法使用，请联系负责人</div>
+                <button type="button" class="proxy-temp-view-btn" onclick="dismissProxyMask(${idx}, event)">点击临时查看</button>
             </div>
         `;
         proxyGrid.appendChild(cardEl);
@@ -705,6 +708,287 @@ window.cmsFillFirstOnlineNow = function (index) {
     renderCmsPanel();
 };
 
+/* ---------------- 前置代理探测节点管理 (PROXY_Nodes) & 探测间隔配置 ---------------- */
+
+let proxyNodesList = [];
+let proxyNodesLoaded = false;
+let proxyNodesLoading = false;
+let probeIntervalMinState = parseInt(localStorage.getItem('cfgProbeIntervalMin') || '15', 10) || 15;
+
+window.cmsLoadProxyNodes = function (showNotice) {
+    if (!window.hasCloudApi || !window.hasCloudApi() || typeof REPORT_API_URL === 'undefined' || !REPORT_API_URL) {
+        return;
+    }
+    if (proxyNodesLoading) return;
+    proxyNodesLoading = true;
+    fetch(REPORT_API_URL + '?action=proxynodes&t=' + Date.now(), { cache: 'no-store' })
+        .then(r => r.json())
+        .then(j => {
+            proxyNodesLoading = false;
+            if (j && j.ok) {
+                proxyNodesLoaded = true;
+                if (j.probeIntervalMin) {
+                    probeIntervalMinState = parseInt(j.probeIntervalMin, 10) || 15;
+                    localStorage.setItem('cfgProbeIntervalMin', String(probeIntervalMinState));
+                }
+                proxyNodesList = Array.isArray(j.nodes) ? j.nodes.map(n => ({
+                    id: n.id || '',
+                    name: n.name || '',
+                    server: n.server || '',
+                    port: n.port || 443,
+                    authInput: '', // 密码永不明文回显，仅在管理员新输入时提交
+                    hasAuth: !!n.hasAuth,
+                    sni: n.sni || '',
+                    insecure: n.insecure !== false,
+                    online: n.online !== false,
+                    updatedAt: n.updatedAt || '',
+                    isNew: false
+                })) : [];
+                renderCmsPanel();
+                if (showNotice && typeof showToast === 'function') showToast('✅ 已同步 PROXY_Nodes 节点列表');
+            }
+        })
+        .catch(() => {
+            proxyNodesLoading = false;
+        });
+};
+
+window.cmsSetProbeIntervalQuick = function (minVal) {
+    probeIntervalMinState = parseInt(minVal, 10) || 15;
+    const inp = document.getElementById('cmsProbeIntervalInput');
+    if (inp) inp.value = String(probeIntervalMinState);
+    window.cmsSaveProbeInterval();
+};
+
+window.cmsSaveProbeInterval = function () {
+    const inp = document.getElementById('cmsProbeIntervalInput');
+    let val = parseInt(inp ? inp.value : probeIntervalMinState, 10);
+    if (isNaN(val) || val < 1) val = 15;
+    if (val > 1440) val = 1440;
+    probeIntervalMinState = val;
+    localStorage.setItem('cfgProbeIntervalMin', String(val));
+
+    if (!window.hasCloudApi || !window.hasCloudApi()) {
+        return showToast('💾 已保存在本机（部署云端后可同步）');
+    }
+    const token = getAdminToken();
+    if (!token) return;
+    showToast('⏳ 正在保存探测间隔...');
+    window.postToApi({ action: 'SET_PROBE_INTERVAL', token, probeIntervalMin: val }, true)
+        .then(j => {
+            if (j && j.ok) {
+                showToast(`✅ 探测间隔已设为每 ${j.probeIntervalMin || val} 分钟一次`);
+                renderCmsPanel();
+            } else {
+                showToast('❌ 保存失败：' + ((j && j.error) || '密钥错误'));
+            }
+        })
+        .catch(e => showToast('❌ 保存失败：' + e.message));
+};
+
+window.cmsUpdateProxyNodeField = function (idx, field, val) {
+    const n = proxyNodesList[idx];
+    if (!n) return;
+    n[field] = val;
+};
+
+window.cmsAddProxyNodeDraft = function () {
+    proxyNodesLoaded = true;
+    proxyNodesList.push({
+        id: 'pnode_' + Date.now(),
+        name: '',
+        server: '',
+        port: 443,
+        authInput: '',
+        hasAuth: false,
+        sni: '',
+        insecure: true,
+        online: true,
+        updatedAt: '',
+        isNew: true
+    });
+    renderCmsPanel();
+};
+
+window.cmsSaveProxyNode = function (idx) {
+    const n = proxyNodesList[idx];
+    if (!n) return;
+    const name = String(n.name || '').trim();
+    const server = String(n.server || '').trim();
+    const port = parseInt(n.port, 10) || 443;
+    if (!name) return showToast('⚠️ 请填写节点显示名 (name)');
+    if (!server) return showToast('⚠️ 请填写节点地址 (server)');
+
+    const token = getAdminToken();
+    if (!token) return;
+    showToast('⏳ 正在保存前置节点到 PROXY_Nodes...');
+
+    const payloadNode = {
+        id: n.id,
+        name,
+        server,
+        port,
+        auth: n.authInput || '', // 留空时后端保留原密码，输入新值则覆盖
+        sni: String(n.sni || '').trim(),
+        insecure: n.insecure !== false,
+        online: n.online !== false
+    };
+
+    window.postToApi({ action: 'SAVE_PROXY_NODE', token, node: payloadNode }, true)
+        .then(j => {
+            if (j && j.ok) {
+                if (Array.isArray(j.nodes)) {
+                    proxyNodesList = j.nodes.map(item => ({
+                        id: item.id || '',
+                        name: item.name || '',
+                        server: item.server || '',
+                        port: item.port || 443,
+                        authInput: '',
+                        hasAuth: !!item.hasAuth,
+                        sni: item.sni || '',
+                        insecure: item.insecure !== false,
+                        online: item.online !== false,
+                        updatedAt: item.updatedAt || '',
+                        isNew: false
+                    }));
+                } else {
+                    n.authInput = '';
+                    n.hasAuth = n.hasAuth || Boolean(payloadNode.auth);
+                    n.isNew = false;
+                }
+                showToast('✅ 节点已存入 PROXY_Nodes（下次自动探测生效）');
+                renderCmsPanel();
+            } else {
+                showToast('❌ 保存失败：' + ((j && j.error) || '未知错误'));
+            }
+        })
+        .catch(e => showToast('❌ 保存失败：' + e.message));
+};
+
+window.cmsToggleProxyNodeOnline = function (idx, onlineChecked) {
+    const n = proxyNodesList[idx];
+    if (!n) return;
+    n.online = !!onlineChecked;
+    if (n.isNew) {
+        renderCmsPanel();
+        return;
+    }
+    const token = getAdminToken();
+    if (!token) { renderCmsPanel(); return; }
+    window.postToApi({ action: 'TOGGLE_PROXY_NODE', token, id: n.id, online: n.online }, true)
+        .then(j => {
+            if (j && j.ok) {
+                showToast(n.online ? `🟢 已上线「${n.name}」` : `⚪ 已下线「${n.name}」`);
+                renderCmsPanel();
+            } else {
+                showToast('❌ 状态切换失败：' + ((j && j.error) || ''));
+            }
+        })
+        .catch(e => showToast('❌ 状态切换失败：' + e.message));
+};
+
+window.cmsDeleteProxyNode = function (idx) {
+    const n = proxyNodesList[idx];
+    if (!n) return;
+    if (!confirm(`确认从 PROXY_Nodes 删除节点「${n.name || n.id}」？`)) return;
+    if (n.isNew) {
+        proxyNodesList.splice(idx, 1);
+        renderCmsPanel();
+        return;
+    }
+    const token = getAdminToken();
+    if (!token) return;
+    showToast('⏳ 正在删除节点...');
+    window.postToApi({ action: 'DELETE_PROXY_NODE', token, id: n.id }, true)
+        .then(j => {
+            if (j && j.ok) {
+                proxyNodesList.splice(idx, 1);
+                showToast('🗑 节点已删除');
+                renderCmsPanel();
+            } else {
+                showToast('❌ 删除失败：' + ((j && j.error) || ''));
+            }
+        })
+        .catch(e => showToast('❌ 删除失败：' + e.message));
+};
+
+function renderProxyNodesSubbox() {
+    if (!proxyNodesLoaded && !proxyNodesLoading) {
+        setTimeout(() => window.cmsLoadProxyNodes(false), 20);
+    }
+    const itemsMap = (window.probeState && window.probeState.items) || {};
+    const nodeRowsHtml = proxyNodesList.length
+        ? proxyNodesList.map((n, idx) => {
+            const rec = (n.id && itemsMap[n.id]) || (n.name && itemsMap[n.name]) || null;
+            const probeSt = rec ? (rec.status === 'up' ? 'up' : 'down') : 'unknown';
+            const rawNodeLat = (rec && Number(rec.latencyMs) > 0) ? Number(rec.latencyMs) : 0;
+            const nodeLat = rawNodeLat > 4000 ? (rawNodeLat - 4000) : rawNodeLat;
+            const probeBadge = probeSt === 'up'
+                ? `<span class="cms-proxy-status-pill is-up">🟢 探测可用${nodeLat ? ` (${nodeLat}ms)` : ''}</span>`
+                : (probeSt === 'down'
+                    ? `<span class="cms-proxy-status-pill is-down">🔴 探测断网</span>`
+                    : `<span class="cms-proxy-status-pill is-unknown">⚪ 待检测</span>`);
+            return `
+            <div class="cms-item ${n.online ? '' : 'is-hidden'}" style="margin-top:10px;">
+                <div class="cms-item-head">
+                    <span class="cms-badge ${n.online ? 'wifi' : 'none'}">${esc(n.name || '未命名新节点')}</span>
+                    ${probeBadge}
+                    <span style="font-size:11.5px;color:var(--text-muted);">密码状态：${n.hasAuth ? '🔒 已加密保存' : '⚠️ 未设密码'}</span>
+                    <span class="cms-spacer"></span>
+                    <label class="cms-vis-switch ${n.online ? 'is-on' : 'is-off'}" title="切换该节点是否参与自动探测">
+                        <input type="checkbox" ${n.online ? 'checked' : ''} onchange="cmsToggleProxyNodeOnline(${idx}, this.checked)">
+                        <span class="cms-vis-track"><span class="cms-vis-thumb"></span></span>
+                        <span class="cms-vis-label">${n.online ? '已上线' : '已下线'}</span>
+                    </label>
+                </div>
+                <div class="cms-grid">
+                    <div class="cms-field"><label>显示名 (name，与卡片同名自动关联)</label>
+                        <input type="text" placeholder="例如：李俊鑫组 美区前置" value="${esc(n.name)}" oninput="cmsUpdateProxyNodeField(${idx},'name',this.value)"></div>
+                    <div class="cms-field"><label>服务器地址 (server)</label>
+                        <input type="text" placeholder="域名或 IP，如 us.example.com" value="${esc(n.server)}" oninput="cmsUpdateProxyNodeField(${idx},'server',this.value)"></div>
+                    <div class="cms-field"><label>端口 (port)</label>
+                        <input type="number" placeholder="443" value="${esc(n.port || 443)}" oninput="cmsUpdateProxyNodeField(${idx},'port',this.value)"></div>
+                    <div class="cms-field"><label>认证密码 (auth，网页不明文回显)</label>
+                        <input type="password" autocomplete="new-password" value="${esc(n.authInput || '')}" placeholder="${n.hasAuth ? '🔒 已加密保存（留空保持不变，输入新密码则覆盖）' : '请输入节点 auth 密码'}" oninput="cmsUpdateProxyNodeField(${idx},'authInput',this.value)"></div>
+                    <div class="cms-field"><label>SNI (sni，可留空)</label>
+                        <input type="text" placeholder="例如：bing.com" value="${esc(n.sni || '')}" oninput="cmsUpdateProxyNodeField(${idx},'sni',this.value)"></div>
+                    <div class="cms-field" style="display:flex;align-items:flex-end;padding-bottom:6px;">
+                        <label class="cms-check">
+                            <input type="checkbox" ${n.insecure !== false ? 'checked' : ''} onchange="cmsUpdateProxyNodeField(${idx},'insecure',this.checked)"> 跳过证书校验 (insecure)
+                        </label>
+                    </div>
+                </div>
+                <div class="cms-item-bar">
+                    <button type="button" class="btn-primary" style="padding:6px 14px;font-size:12.5px;" onclick="cmsSaveProxyNode(${idx})">💾 保存节点到表格</button>
+                    <button type="button" class="cms-del" onclick="cmsDeleteProxyNode(${idx})">🗑 删除节点</button>
+                    ${n.updatedAt ? `<span style="font-size:11px;color:var(--text-muted);margin-left:auto;">更新于 ${esc(n.updatedAt)}</span>` : ''}
+                </div>
+            </div>`;
+        }).join('')
+        : `<div class="cms-tip">${proxyNodesLoading ? '⏳ 正在从 Google 表格 PROXY_Nodes 加载节点...' : '暂无探测节点，点击下方「➕ 新增前置探测节点」添加后即可由 GitHub Actions 自动探测（无需修改代码或 GitHub Secret）。'}</div>`;
+
+    return `
+        <div class="cms-subbox" style="margin-bottom:16px;">
+            <div class="cms-subbox-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                <span>🛰️ 前置代理管理（Google 表格 <code>PROXY_Nodes</code> · 自动探测源）</span>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span style="font-size:12px;color:var(--text-muted);">⏱️ 自动探测间隔：</span>
+                    ${[5, 10, 15, 30, 60].map(m => `<button type="button" class="cms-quick-status-btn is-auto ${probeIntervalMinState === m ? 'active' : ''}" style="padding:3px 8px;font-size:11.5px;" onclick="cmsSetProbeIntervalQuick(${m})">${m}分钟</button>`).join('')}
+                    <input type="number" id="cmsProbeIntervalInput" min="1" max="1440" value="${esc(probeIntervalMinState)}" style="width:68px;padding:4px 8px;border-radius:8px;border:1px solid var(--glass-border);background:var(--glass-bg);color:var(--text-color);font-size:12px;">
+                    <span style="font-size:12px;color:var(--text-muted);">分钟</span>
+                    <button type="button" class="btn-primary" style="padding:4px 10px;font-size:12px;" onclick="cmsSaveProbeInterval()">💾 保存间隔</button>
+                    <button type="button" class="btn-ghost" style="padding:4px 10px;font-size:12px;" onclick="cmsLoadProxyNodes(true)">🔄 刷新节点表</button>
+                </div>
+            </div>
+            <div class="cms-tip" style="margin-top:6px;">
+                在这里新增或上线前置节点会直接存入 Google 表格 <code>PROXY_Nodes</code>（密码单向加密入表，不在网页明文回显）。GitHub Actions 每 5 分钟唤醒一次，读取上方设定的探测间隔（默认 15 分钟），满间隔后自动拉取所有「已上线」节点执行探测并关联到同名卡片。
+            </div>
+            ${nodeRowsHtml}
+            <button type="button" class="cms-add" style="margin-top:10px;" onclick="cmsAddProxyNodeDraft()">➕ 新增前置探测节点（写入 PROXY_Nodes）</button>
+        </div>
+    `;
+}
+
 /* ---------------- 1/2. 前置代理 & 公司 WiFi ---------------- */
 
 function cmsSectionProxy(group, sec) {
@@ -743,7 +1027,7 @@ function cmsSectionProxy(group, sec) {
         const st = typeof window.getProxyStatus === 'function' ? window.getProxyStatus(c) : { status: 'unknown' };
         const stPillText = st.status === 'up'
             ? '🟢 当前前台：可用'
-            : (st.status === 'down' ? '🔴 当前前台：不可用' : '⚪ 当前前台：未检测');
+            : (st.status === 'down' ? '🔴 当前前台：不可用' : '⚪ 当前前台：待检测（无遮罩）');
 
         return `
         <div class="cms-item ${isVisible ? '' : 'is-hidden'}">
@@ -797,10 +1081,11 @@ function cmsSectionProxy(group, sec) {
     });
 
     const tipText = isProxy
-        ? '支持「上传图片」或「由前置链接生成二维码」两种方式；可设置状态覆盖或使用快捷按钮一键置为不可用（自动填入当前断网时间）/ 恢复可用。'
+        ? '下方管理前台展示的前置代理二维码卡片（当卡片名称与上方 PROXY_Nodes 节点显示名一致时，自动关联探测状态）。'
         : '已按「是否已上传二维码」自动归类；可直接切换「显示/隐藏」开关控制前台展示，用 ↑ ↓ 调整顺序。';
 
     const body = `
+        ${isProxy ? renderProxyNodesSubbox() : ''}
         <div class="cms-tip">${tipText}</div>
         ${rows || '<div class="cms-tip">暂无条目</div>'}
         <button type="button" class="cms-add" onclick="cmsAdd('${group}')">➕ 新增条目</button>`;
