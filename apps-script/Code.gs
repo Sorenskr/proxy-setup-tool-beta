@@ -54,6 +54,9 @@ function doGet(e) {
     if (action === 'proxynodes') {
       return jsonOut({ ok: true, probeIntervalMin: getProbeIntervalMin(), nodes: readProxyNodes_(false) });
     }
+    if (action === 'media') {
+      return jsonOut(readDriveMedia_(p.id || ''));
+    }
     if (action === 'inboxpage') {
       return HtmlService.createHtmlOutput(getInboxPageHtml(p.room || ''))
         .setTitle('内容上传')
@@ -799,6 +802,23 @@ function normalizeDriveImgUrl_(url) {
   var m = /[?&]id=([a-zA-Z0-9_-]{10,})/.exec(s) || /\/file\/d\/([a-zA-Z0-9_-]{10,})/.exec(s);
   if (m && m[1]) return 'https://lh3.googleusercontent.com/d/' + m[1];
   return s;
+}
+
+/**
+ * 供前端 <audio> 跨域安全读取上传到 Google Drive 的音频流（绕过 Chrome 303 CORP 拦截）
+ */
+function readDriveMedia_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) throw new Error('缺少文件 ID');
+  var file = DriveApp.getFileById(id);
+  var blob = file.getBlob();
+  return {
+    ok: true,
+    id: id,
+    name: file.getName(),
+    mimeType: blob.getContentType() || 'audio/mpeg',
+    base64: Utilities.base64Encode(blob.getBytes())
+  };
 }
 
 /* ====================== 扫码收件箱（手机上传） ====================== */

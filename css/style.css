@@ -71,8 +71,13 @@ button.bg-sound-btn.is-unmuted { border-color: #34C759; box-shadow: 0 0 12px rgb
     box-shadow: var(--shadow); transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
     display: flex; align-items: center; overflow: hidden;
 }
-.music-player-widget:hover {
+.music-player-widget:hover,
+.music-player-widget.has-error {
     width: 280px; height: 66px; border-radius: 16px; padding: 8px 12px;
+}
+.music-player-widget.has-error {
+    height: auto; min-height: 76px; border-color: rgba(255, 59, 48, 0.65);
+    box-shadow: 0 8px 24px rgba(255, 59, 48, 0.18);
 }
 .music-disc {
     width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
@@ -86,8 +91,18 @@ body.dark-mode .music-disc { border-color: #2d333b; }
     display: flex; flex-direction: column; justify-content: center; gap: 6px;
     opacity: 0; width: 0; transition: opacity 0.3s ease; padding-left: 10px; flex: 1;
 }
-.music-player-widget:hover .music-content-wrap {
+.music-player-widget:hover .music-content-wrap,
+.music-player-widget.has-error .music-content-wrap {
     opacity: 1; width: calc(100% - 36px); 
+}
+.music-error-tip {
+    font-size: 11px; font-weight: 700; color: #ff3b30;
+    background: rgba(255, 59, 48, 0.12); border: 1px solid rgba(255, 59, 48, 0.32);
+    border-radius: 6px; padding: 2px 7px; line-height: 1.35;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.dark-mode .music-error-tip {
+    color: #ff6b6b; background: rgba(248, 81, 73, 0.16); border-color: rgba(248, 81, 73, 0.38);
 }
 
 .music-header { display: flex; align-items: center; justify-content: space-between; }

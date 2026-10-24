@@ -286,14 +286,237 @@ function animateValue(obj, start, end, duration) {
 let musicFiles = [ "小瀬村晶 - Summer Ghost.mp3" ];
 window.musicFiles = musicFiles;
 
+/**
+ * 从网易云音乐各种链接/外链代码/纯数字中提取歌曲 ID
+ */
+function extractNeteaseSongId(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim();
+    if (!s) return '';
+    if (/^\d{5,15}$/.test(s)) return s;
+    const m1 = /music\.163\.com\/(?:#\/|m\/)?song\?(?:[^#]*&)?id=(\d+)/i.exec(s);
+    if (m1 && m1[1]) return m1[1];
+    const m2 = /music\.163\.com\/song\/media\/outer\/url\?id=(\d+)/i.exec(s);
+    if (m2 && m2[1]) return m2[1];
+    const m3 = /music\.163\.com\/outchain\/player\?[^"']*?\bid=(\d+)/i.exec(s);
+    if (m3 && m3[1]) return m3[1];
+    return '';
+}
+window.extractNeteaseSongId = extractNeteaseSongId;
+
+/**
+ * 智能转换与校验音乐地址：
+ * 1. 网易云音乐分享链接 / iframe 代码 / 纯数字 ID -> 自动转为 https://music.163.com/song/media/outer/url?id=xxx.mp3
+ * 2. Google Drive 分享链接 -> 自动转为 https://drive.google.com/uc?export=download&id=FILE_ID
+ * 3. 直链 mp3/m4a 或本地相对路径 / DataURL / local-audio:// -> 原样保留
+ */
+function normalizeMusicTrackUrl(raw) {
+    if (!raw) return '';
+    const s = String(raw).trim();
+    if (!s) return '';
+
+    const neteaseId = extractNeteaseSongId(s);
+    if (neteaseId) {
+        return `https://music.163.com/song/media/outer/url?id=${neteaseId}.mp3`;
+    }
+
+    const gd = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]{10,})/i.exec(s);
+    if (gd && gd[1]) {
+        return `https://drive.google.com/uc?export=download&id=${gd[1]}`;
+    }
+
+    return s;
+}
+window.normalizeMusicTrackUrl = normalizeMusicTrackUrl;
+
+/**
+ * 自动从音乐链接（如网易云音乐分享链接/外链）抓取封面图与歌曲信息
+ */
+const MUSIC_META_CACHE_KEY = 'mnMusicMetaCache_v1';
+function getMusicMetaCacheMap() {
+    try {
+        const raw = localStorage.getItem(MUSIC_META_CACHE_KEY);
+        return raw ? (JSON.parse(raw) || {}) : {};
+    } catch (e) { return {}; }
+}
+function saveMusicMetaCacheItem(songId, meta) {
+    if (!songId || !meta) return;
+    try {
+        const map = getMusicMetaCacheMap();
+        map[songId] = meta;
+        localStorage.setItem(MUSIC_META_CACHE_KEY, JSON.stringify(map));
+    } catch (e) {}
+}
+
+window.fetchMusicLinkMeta = async function (rawUrl) {
+    const songId = extractNeteaseSongId(rawUrl);
+    if (!songId) return null;
+
+    const cached = getMusicMetaCacheMap()[songId];
+    if (cached && cached.cover) return cached;
+
+    const endpoints = [
+        `https://api.injahow.cn/meting/?type=song&id=${songId}`,
+        `https://api.i-meto.com/meting/api?server=netease&type=song&id=${songId}`
+    ];
+
+    for (let i = 0; i < endpoints.length; i++) {
+        try {
+            const res = await fetch(endpoints[i]);
+            if (!res.ok) continue;
+            const data = await res.json();
+            const item = Array.isArray(data) ? data[0] : data;
+            if (item && (item.pic || item.cover || item.name || item.title)) {
+                const rawPic = String(item.pic || item.cover || '').trim();
+                const cover = rawPic ? rawPic.replace(/^http:\/\//i, 'https://') : '';
+                const name = String(item.name || item.title || '').trim();
+                const artist = String(item.artist || item.author || '').trim();
+                const fullTitle = (artist && name && !name.includes(artist)) ? `${artist} - ${name}` : (name || artist);
+                if (cover || fullTitle) {
+                    const meta = { songId, title: fullTitle, name, artist, cover };
+                    if (cover) saveMusicMetaCacheItem(songId, meta);
+                    return meta;
+                }
+            }
+        } catch (e) {}
+    }
+
+    // 备用：通过 allorigins 抓取网易云官方 song/detail 接口封面
+    try {
+        const detailUrl = `https://music.163.com/api/song/detail/?id=${songId}&ids=%5B${songId}%5D`;
+        const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(detailUrl)}`);
+        if (proxyRes.ok) {
+            const wrapper = await proxyRes.json();
+            const parsed = JSON.parse(wrapper.contents || '{}');
+            const song = parsed && Array.isArray(parsed.songs) && parsed.songs[0];
+            if (song) {
+                const rawPic = String((song.album && song.album.picUrl) || '').trim();
+                const cover = rawPic ? rawPic.replace(/^http:\/\//i, 'https://') : '';
+                const name = String(song.name || '').trim();
+                const artist = Array.isArray(song.artists) ? song.artists.map(a => a.name).filter(Boolean).join(' / ') : '';
+                const fullTitle = (artist && name) ? `${artist} - ${name}` : (name || artist);
+                const meta = { songId, title: fullTitle, name, artist, cover };
+                if (cover) saveMusicMetaCacheItem(songId, meta);
+                return meta;
+            }
+        }
+    } catch (e) {}
+
+    return null;
+};
+
+/**
+ * 本地浏览器 IndexedDB 音频缓存池：
+ * 解决本机上传音频后立刻免跨域播放，以及 Google Drive 303 重定向 CORP 拦截问题
+ */
+const AUDIO_IDB_NAME = 'mnAudioCacheDB';
+const AUDIO_IDB_STORE = 'audioBlobs';
+const memoryAudioBlobUrls = {};
+
+function openAudioIdb() {
+    return new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
+        const req = indexedDB.open(AUDIO_IDB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(AUDIO_IDB_STORE)) {
+                db.createObjectStore(AUDIO_IDB_STORE);
+            }
+        };
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e.target.error);
+    });
+}
+
+window.saveLocalAudioBlob = function (key, blob) {
+    if (!key || !blob) return Promise.resolve();
+    try {
+        if (memoryAudioBlobUrls[key]) URL.revokeObjectURL(memoryAudioBlobUrls[key]);
+        memoryAudioBlobUrls[key] = URL.createObjectURL(blob);
+    } catch (e) {}
+    return openAudioIdb().then(db => new Promise((resolve) => {
+        const tx = db.transaction(AUDIO_IDB_STORE, 'readwrite');
+        tx.objectStore(AUDIO_IDB_STORE).put(blob, String(key).trim());
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+    })).catch(() => false);
+};
+
+window.getLocalAudioBlobUrl = function (key) {
+    const k = String(key || '').trim();
+    if (!k) return Promise.resolve('');
+    if (memoryAudioBlobUrls[k]) return Promise.resolve(memoryAudioBlobUrls[k]);
+    return openAudioIdb().then(db => new Promise((resolve) => {
+        const tx = db.transaction(AUDIO_IDB_STORE, 'readonly');
+        const req = tx.objectStore(AUDIO_IDB_STORE).get(k);
+        req.onsuccess = () => {
+            if (req.result instanceof Blob) {
+                const u = URL.createObjectURL(req.result);
+                memoryAudioBlobUrls[k] = u;
+                resolve(u);
+            } else {
+                resolve('');
+            }
+        };
+        req.onerror = () => resolve('');
+    })).catch(() => '');
+};
+
 // 播放列表：优先使用后台下发的歌单，否则回退到本地 music/ 目录
 function getMusicTracks() {
     const remote = window.SiteContent && window.SiteContent.data && window.SiteContent.data.music;
-    if (Array.isArray(remote) && remote.length) return remote;
-    return (musicFiles || []).map(n => ({ name: String(n).replace(/\.[^/.]+$/, ''), url: 'music/' + n }));
+    if (Array.isArray(remote) && remote.length) {
+        return typeof window.normalizeMusicTracks === 'function' ? window.normalizeMusicTracks(remote) : remote;
+    }
+    return (musicFiles || []).map(n => ({
+        name: String(n).replace(/\.[^/.]+$/, ''),
+        sourceMode: 'link',
+        url: 'music/' + n,
+        linkUrl: 'music/' + n,
+        uploadUrl: '',
+        cover: ''
+    }));
 }
 window.getMusicTracks = getMusicTracks;
-let currentTrackIndex = 0; let audioEl = null; let isPlaying = false; let playMode = 'sequence';   
+
+function getEffectiveTrackRawUrl(track) {
+    if (!track || typeof track !== 'object') return '';
+    if (track.sourceMode === 'upload') {
+        return String(track.uploadUrl || track.url || '').trim();
+    }
+    return String(track.linkUrl || track.url || '').trim();
+}
+
+let currentTrackIndex = 0; let audioEl = null; let isPlaying = false; let playMode = 'sequence';
+let fallbackTryingUrl = '';
+
+/**
+ * 在悬浮音乐控件上显示/清除非静默错误提示（如“⚠️ 该链接无法直接播放”）
+ */
+function setMusicWidgetError(msg) {
+    const widget = document.getElementById('musicPlayerWidget') || document.querySelector('.music-player-widget');
+    const tipEl = document.getElementById('musicErrorTip');
+    if (tipEl) {
+        tipEl.textContent = msg || '⚠️ 该链接无法直接播放';
+        tipEl.style.display = 'block';
+    }
+    if (widget) {
+        widget.classList.add('has-error');
+    }
+}
+window.setMusicWidgetError = setMusicWidgetError;
+
+function clearMusicWidgetError() {
+    const widget = document.getElementById('musicPlayerWidget') || document.querySelector('.music-player-widget');
+    const tipEl = document.getElementById('musicErrorTip');
+    if (tipEl) {
+        tipEl.style.display = 'none';
+    }
+    if (widget) {
+        widget.classList.remove('has-error');
+    }
+}
+window.clearMusicWidgetError = clearMusicWidgetError;
 
 // 全局快捷键监听 (规避输入框)
 document.addEventListener('keydown', (e) => {
@@ -307,29 +530,253 @@ function initMusicPlayer() {
     audioEl = document.getElementById('bgAudio'); if(!audioEl) return;
     audioEl.addEventListener('timeupdate', updateProgress);
     audioEl.addEventListener('ended', nextTrack); 
-    audioEl.addEventListener('loadedmetadata', () => { const totalEl = document.getElementById('totalTime'); if(totalEl) totalEl.innerText = formatTime(audioEl.duration); });
+    audioEl.addEventListener('loadedmetadata', () => {
+        clearMusicWidgetError();
+        const totalEl = document.getElementById('totalTime');
+        if (totalEl) totalEl.innerText = formatTime(audioEl.duration);
+    });
+    audioEl.addEventListener('playing', () => {
+        clearMusicWidgetError();
+    });
+    audioEl.addEventListener('error', () => {
+        if (!audioEl || !audioEl.getAttribute('src')) return;
+        const tracks = getMusicTracks();
+        const track = tracks[currentTrackIndex] || tracks[0];
+        const rawUrl = getEffectiveTrackRawUrl(track);
+        // 若正在播放或用户主动触发播放失败，尝试代理拉流或直接提示“该链接无法直接播放”
+        if (isPlaying || audioEl.dataset.userTriggered === '1') {
+            tryFallbackAudioAndPlay(rawUrl);
+        }
+    });
     loadTrack(currentTrackIndex); 
 }
 
+function buildTrackAvatarUrl(trackName) {
+    const coverName = String(trackName || 'MN').split('-').pop().trim() || 'MN';
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(coverName)}&background=random&color=fff&size=128&rounded=true&bold=true`;
+}
+
+function applyTrackCover(track, index) {
+    const coverEl = document.getElementById('musicDisc');
+    if (!coverEl || coverEl.tagName !== 'IMG') return;
+    const avatarUrl = buildTrackAvatarUrl(track && track.name);
+    coverEl.onerror = () => {
+        coverEl.onerror = null;
+        coverEl.src = avatarUrl;
+    };
+
+    const customCover = String((track && track.cover) || '').trim();
+    if (customCover) {
+        coverEl.src = customCover;
+        return;
+    }
+
+    // 未手动上传封面时：优先尝试从音乐链接（如网易云音乐外链）自动抓取专辑封面
+    coverEl.src = avatarUrl;
+    const rawLink = String((track && (track.linkUrl || track.url)) || '').trim();
+    if (extractNeteaseSongId(rawLink)) {
+        window.fetchMusicLinkMeta(rawLink).then(meta => {
+            if (!meta || !meta.cover) return;
+            track.cover = meta.cover;
+            if (currentTrackIndex === index && coverEl) {
+                coverEl.src = meta.cover;
+            }
+        }).catch(() => {});
+    }
+}
+
 function loadTrack(index) {
-    if(!audioEl) return;
+    if (!audioEl) audioEl = document.getElementById('bgAudio');
+    if (!audioEl) return;
     const tracks = getMusicTracks();
     if (tracks.length === 0) return;
+    if (index < 0 || index >= tracks.length) index = 0;
+    currentTrackIndex = index;
     const track = tracks[index] || tracks[0];
-    audioEl.src = track.url;
-    const titleEl = document.getElementById('musicTitle'); if(titleEl) titleEl.innerText = track.name || '未知曲目';
-    let coverName = String(track.name || 'MN').split('-').pop().trim() || 'MN';
-    const coverEl = document.getElementById('musicDisc');
-    if (coverEl && coverEl.tagName === 'IMG') {
-        const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(coverName)}&background=random&color=fff&size=128&rounded=true&bold=true`;
-        coverEl.src = avatarUrl;
+    const rawUrl = getEffectiveTrackRawUrl(track);
+    const normalizedUrl = normalizeMusicTrackUrl(rawUrl);
+    fallbackTryingUrl = '';
+    clearMusicWidgetError();
+
+    // 优先检查本地 IndexedDB 是否已缓存该音频 Blob
+    window.getLocalAudioBlobUrl(rawUrl).then(blobUrl => {
+        if (currentTrackIndex !== index) return;
+        const targetSrc = blobUrl || normalizedUrl;
+        if (targetSrc) {
+            audioEl.src = targetSrc;
+        } else {
+            audioEl.removeAttribute('src');
+        }
+    });
+    if (normalizedUrl && !/^local-audio:\/\//i.test(normalizedUrl)) {
+        audioEl.src = normalizedUrl;
     }
+
+    const titleEl = document.getElementById('musicTitle');
+    if (titleEl) titleEl.innerText = track.name || '未知曲目';
+    applyTrackCover(track, index);
+
     const progEl = document.getElementById('musicProgress'); if(progEl) progEl.style.width = '0%';
     const curEl = document.getElementById('currentTime'); if(curEl) curEl.innerText = '0:00';
+    const totalEl = document.getElementById('totalTime'); if(totalEl) totalEl.innerText = '0:00';
 }
+
+function base64ToBlob(b64, mimeType) {
+    const binStr = atob(b64);
+    const len = binStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binStr.charCodeAt(i);
+    return new Blob([bytes], { type: mimeType || 'audio/mpeg' });
+}
+
+/**
+ * 当 Google Drive 直链或外部音频被浏览器 CORP/CORS 拦截时：
+ * 1. 先检查本地 IndexedDB 是否有缓存
+ * 2. 若是 Google Drive 文件且已配置 REPORT_API_URL，优先通过后端 ?action=media&id=FILE_ID 拉取音频字节流
+ * 3. 再尝试 CORS 代理拉取音频流转为本地 Blob URL 播放
+ * 4. 若仍失败，绝不静默失败：在音乐控件上直接显示“⚠️ 该链接无法直接播放”并弹出 Toast 提示
+ */
+async function tryFallbackAudioAndPlay(rawUrl) {
+    if (!audioEl || !rawUrl) {
+        notifyMusicPlayFailed();
+        return;
+    }
+    const cleanUrl = normalizeMusicTrackUrl(rawUrl);
+    if (fallbackTryingUrl === cleanUrl) {
+        notifyMusicPlayFailed();
+        return;
+    }
+    fallbackTryingUrl = cleanUrl;
+
+    try {
+        const cachedBlobUrl = await window.getLocalAudioBlobUrl(rawUrl);
+        if (cachedBlobUrl && audioEl.src !== cachedBlobUrl) {
+            audioEl.src = cachedBlobUrl;
+            await audioEl.play();
+            isPlaying = true;
+            clearMusicWidgetError();
+            updateUIState();
+            return;
+        }
+    } catch (e) {}
+
+    // 针对 Google Drive 音频：优先调用 Google Apps Script ?action=media&id=FILE_ID 绕过 Chrome 303 CORP 拦截
+    const driveIdMatch = /[?&]id=([a-zA-Z0-9_-]{10,})/i.exec(cleanUrl) || /\/file\/d\/([a-zA-Z0-9_-]{10,})/i.exec(cleanUrl);
+    if (driveIdMatch && driveIdMatch[1] && typeof REPORT_API_URL !== 'undefined' && String(REPORT_API_URL).trim()) {
+        try {
+            if (typeof showToast === 'function') showToast('⏳ 正在从云端加载音频流...');
+            const mediaApi = `${String(REPORT_API_URL).trim()}?action=media&id=${encodeURIComponent(driveIdMatch[1])}`;
+            const res = await fetch(mediaApi);
+            if (res.ok) {
+                const j = await res.json();
+                if (j && j.ok && j.base64) {
+                    const blob = base64ToBlob(j.base64, j.mimeType || 'audio/mpeg');
+                    await window.saveLocalAudioBlob(rawUrl, blob);
+                    const blobUrl = URL.createObjectURL(blob);
+                    audioEl.src = blobUrl;
+                    await audioEl.play();
+                    isPlaying = true;
+                    clearMusicWidgetError();
+                    updateUIState();
+                    return;
+                }
+            }
+        } catch (e) {}
+    }
+
+    // 尝试通过公共 CORS 代理拉取音频流（排除已知会跳 404 HTML 的受限地址）
+    if (/^https?:\/\//i.test(cleanUrl)) {
+        try {
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(cleanUrl)}`;
+            const res = await fetch(proxyUrl);
+            const ctype = (res.headers && res.headers.get('content-type')) || '';
+            if (res.ok && !ctype.includes('text/html')) {
+                const blob = await res.blob();
+                if (blob && blob.size > 1024 && !String(blob.type).includes('text/html')) {
+                    await window.saveLocalAudioBlob(rawUrl, blob);
+                    const blobUrl = URL.createObjectURL(blob);
+                    audioEl.src = blobUrl;
+                    await audioEl.play();
+                    isPlaying = true;
+                    clearMusicWidgetError();
+                    updateUIState();
+                    return;
+                }
+            }
+        } catch (e) {}
+    }
+
+    notifyMusicPlayFailed();
+}
+
+function notifyMusicPlayFailed() {
+    isPlaying = false;
+    if (audioEl) audioEl.dataset.userTriggered = '0';
+    updateUIState();
+    setMusicWidgetError('⚠️ 该链接无法直接播放');
+    if (typeof showToast === 'function') {
+        showToast('⚠️ 该链接无法直接播放（受防盗链/VIP限制），请改填直链 mp3 或在后台上传音频文件');
+    }
+}
+
 function toggleMusic() { if(!audioEl) return; if(isPlaying) pauseAudio(); else playAudio(); }
-function playAudio() { if(!audioEl) return; audioEl.play().then(() => { isPlaying = true; updateUIState(); }).catch(e => { isPlaying = false; updateUIState(); }); }
-function pauseAudio() { if(!audioEl) return; audioEl.pause(); isPlaying = false; updateUIState(); }
+function playAudio() {
+    if (!audioEl) audioEl = document.getElementById('bgAudio');
+    if (!audioEl) return;
+    const tracks = getMusicTracks();
+    if (!tracks.length) {
+        setMusicWidgetError('⚠️ 歌单为空');
+        if (typeof showToast === 'function') showToast('⚠️ 当前歌单为空，请先在后台添加音乐');
+        return;
+    }
+    const track = tracks[currentTrackIndex] || tracks[0];
+    const rawUrl = getEffectiveTrackRawUrl(track);
+    if (!rawUrl) {
+        setMusicWidgetError('⚠️ 该链接无法直接播放');
+        if (typeof showToast === 'function') showToast('⚠️ 当前曲目未设置音频地址或未上传文件');
+        return;
+    }
+    if (!audioEl.getAttribute('src')) {
+        loadTrack(currentTrackIndex);
+    }
+    audioEl.dataset.userTriggered = '1';
+    window.getLocalAudioBlobUrl(rawUrl).then(blobUrl => {
+        if (blobUrl && audioEl.src !== blobUrl) {
+            audioEl.src = blobUrl;
+        }
+        const p = audioEl.play();
+        if (p && typeof p.then === 'function') {
+            p.then(() => {
+                isPlaying = true;
+                clearMusicWidgetError();
+                updateUIState();
+            }).catch((err) => {
+                if (err && err.name === 'NotAllowedError') {
+                    isPlaying = false;
+                    updateUIState();
+                    if (typeof showToast === 'function') showToast('💡 请点击音乐图标开启播放');
+                    return;
+                }
+                tryFallbackAudioAndPlay(rawUrl);
+            });
+        }
+    });
+}
+function pauseAudio() {
+    if (!audioEl) return;
+    audioEl.dataset.userTriggered = '0';
+    audioEl.pause();
+    isPlaying = false;
+    updateUIState();
+}
+
+window.previewMusicTrackAt = function (index) {
+    const tracks = getMusicTracks();
+    if (!tracks[index]) return;
+    currentTrackIndex = index;
+    loadTrack(index);
+    playAudio();
+};
 function updateUIState() {
     const disc = document.getElementById('musicDisc'); const playBtn = document.getElementById('playPauseBtn');
     if (isPlaying) { if(disc) disc.classList.add('playing'); if(playBtn) playBtn.innerText = '⏸'; } 

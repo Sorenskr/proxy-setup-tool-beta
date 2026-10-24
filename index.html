@@ -42,8 +42,8 @@
     <video id="bgVideo" class="bg-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true"></video>
 
     <!-- 🎵 隐匿式悬浮音乐控制台 -->
-    <div class="music-player-widget" role="group" aria-label="背景音乐控制台">
-        <audio id="bgAudio" preload="none"></audio>
+    <div class="music-player-widget" id="musicPlayerWidget" role="group" aria-label="背景音乐控制台">
+        <audio id="bgAudio" preload="none" referrerpolicy="no-referrer"></audio>
         <img class="music-disc" id="musicDisc" src="images/logo.png" width="36" height="36" decoding="async"
              role="button" tabindex="0" aria-label="播放或暂停背景音乐"
              onclick="toggleMusic()" title="点击播放/暂停" alt="专辑封面">
@@ -63,6 +63,7 @@
             <div class="progress-container" onclick="seekMusic(event)">
                 <div class="progress-bar" id="musicProgress"></div>
             </div>
+            <div class="music-error-tip" id="musicErrorTip" role="alert" style="display:none;">⚠️ 该链接无法直接播放</div>
         </div>
     </div>
 

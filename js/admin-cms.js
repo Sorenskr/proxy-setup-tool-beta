@@ -810,6 +810,9 @@ function normalizeCmsState(state) {
     } else if (typeof window.normalizeSecretZoneCards === 'function') {
         state.secretZoneList = window.normalizeSecretZoneCards(state.secretZoneList);
     }
+    if (Array.isArray(state.music) && typeof window.normalizeMusicTracks === 'function') {
+        state.music = window.normalizeMusicTracks(state.music);
+    }
     state.secretZoneEnabled = !!state.secretZoneEnabled;
     if (typeof window.normalizeSectionBlocks === 'function') {
         state.sectionBlocks = window.normalizeSectionBlocks(state.sectionBlocks, state);
@@ -1159,8 +1162,10 @@ function cmsCat(item, group) {
             : { key: 'none', cls: 'miss', label: '⚠️ 未设置二维码图片' };
     }
     if (group === 'music') {
-        return item.url
-            ? { key: 'ok', cls: 'image', label: '🎵 已配置音频' }
+        const mode = item.sourceMode === 'upload' ? 'upload' : 'link';
+        const activeUrl = mode === 'upload' ? (item.uploadUrl || item.url) : (item.linkUrl || item.url);
+        return String(activeUrl || '').trim()
+            ? { key: 'ok', cls: mode === 'upload' ? 'image' : 'wifi', label: '🎵 已配置音频' }
             : { key: 'miss', cls: 'miss', label: '⚠️ 缺少音频文件' };
     }
     return item.imgPath
@@ -2011,35 +2016,390 @@ function cmsSectionWifi(sec) {
     return cmsWrapSection(sec, body, cmsVisibleStatBadge('baseWifiCards'));
 }
 
-/* ---------------- 4. 音乐 ---------------- */
+/* ---------------- 4. 音乐（二选一音频来源 + 自动抓取/上传封面图 + 使用说明） ---------------- */
+
+function getCmsTrackDefaultAvatar(name) {
+    const shortName = String(name || 'MN').split('-').pop().trim() || 'MN';
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(shortName)}&background=random&color=fff&size=128&rounded=true&bold=true`;
+}
+
+window.cmsSetMusicSourceMode = function (index, mode) {
+    const list = cmsState && cmsState.music;
+    const item = list && list[index];
+    if (!item) return;
+    cmsDirty = true;
+    item.sourceMode = mode === 'upload' ? 'upload' : 'link';
+    if (item.sourceMode === 'upload') {
+        item.url = String(item.uploadUrl || '').trim();
+    } else {
+        item.url = String(item.linkUrl || item.url || '').trim();
+    }
+    renderCmsPanel();
+};
+
+window.cmsOnMusicLinkInput = function (index, rawVal) {
+    const list = cmsState && cmsState.music;
+    const item = list && list[index];
+    if (!item) return;
+    cmsDirty = true;
+    const trimmed = String(rawVal || '').trim();
+    const converted = typeof window.normalizeMusicTrackUrl === 'function'
+        ? window.normalizeMusicTrackUrl(trimmed)
+        : trimmed;
+    item.linkUrl = converted;
+    if (item.sourceMode !== 'upload') {
+        item.url = converted;
+    }
+    // 若检测到网易云音乐链接/ID，自动异步尝试抓取封面图与歌曲名
+    const neteaseId = typeof window.extractNeteaseSongId === 'function' ? window.extractNeteaseSongId(trimmed) : '';
+    if (neteaseId && typeof window.fetchMusicLinkMeta === 'function') {
+        window.fetchMusicLinkMeta(trimmed).then(meta => {
+            if (!meta) return;
+            let updated = false;
+            if (meta.cover && !item.cover) {
+                item.cover = meta.cover;
+                const coverInp = document.getElementById('cmsMusicCoverInput_' + index);
+                if (coverInp) coverInp.value = meta.cover;
+                const coverImg = document.getElementById('cmsMusicCoverThumb_' + index);
+                if (coverImg) coverImg.src = meta.cover;
+                updated = true;
+            }
+            if (meta.title && (!item.name || item.name === '新曲目' || /^曲目\s*\d+$/.test(item.name))) {
+                item.name = meta.title;
+                const nameInp = document.getElementById('cmsMusicNameInput_' + index);
+                if (nameInp) nameInp.value = meta.title;
+                updated = true;
+            }
+            if (updated && typeof showToast === 'function') {
+                showToast('🎵 已自动识别网易云音乐并抓取封面');
+            }
+        }).catch(() => {});
+    }
+};
+
+window.cmsAutoConvertMusicLink = function (index, rawVal) {
+    const list = cmsState && cmsState.music;
+    const item = list && list[index];
+    if (!item) return;
+    const trimmed = String(rawVal || '').trim();
+    const converted = typeof window.normalizeMusicTrackUrl === 'function'
+        ? window.normalizeMusicTrackUrl(trimmed)
+        : trimmed;
+    if (converted && converted !== trimmed) {
+        item.linkUrl = converted;
+        if (item.sourceMode !== 'upload') item.url = converted;
+        const linkInp = document.getElementById('cmsMusicLinkInput_' + index);
+        if (linkInp) linkInp.value = converted;
+        if (typeof showToast === 'function') {
+            showToast('🔗 已自动转换为可直接播放的音乐地址');
+        }
+    }
+};
+
+window.cmsSetMusicCover = function (index, coverVal) {
+    const list = cmsState && cmsState.music;
+    const item = list && list[index];
+    if (!item) return;
+    cmsDirty = true;
+    item.cover = String(coverVal || '').trim();
+    const coverImg = document.getElementById('cmsMusicCoverThumb_' + index);
+    if (coverImg) {
+        coverImg.src = item.cover || getCmsTrackDefaultAvatar(item.name);
+    }
+};
+
+window.cmsFetchMusicCover = function (index, manualClick) {
+    const list = cmsState && cmsState.music;
+    const item = list && list[index];
+    if (!item) return;
+    const rawLink = String(item.linkUrl || item.url || '').trim();
+    if (!rawLink) {
+        if (manualClick && typeof showToast === 'function') showToast('⚠️ 请先填写音乐外链');
+        return;
+    }
+    if (typeof window.fetchMusicLinkMeta !== 'function') return;
+    if (manualClick && typeof showToast === 'function') showToast('🔍 正在从音乐链接抓取封面...');
+    window.fetchMusicLinkMeta(rawLink).then(meta => {
+        if (meta && meta.cover) {
+            cmsDirty = true;
+            item.cover = meta.cover;
+            if (meta.title && (!item.name || item.name === '新曲目')) {
+                item.name = meta.title;
+            }
+            renderCmsPanel();
+            if (typeof showToast === 'function') showToast('✅ 已自动抓取封面图');
+        } else if (manualClick && typeof showToast === 'function') {
+            showToast('⚠️ 未能从该链接抓到封面，请点击「🖼 上传封面图」手动上传');
+        }
+    }).catch(() => {
+        if (manualClick && typeof showToast === 'function') {
+            showToast('⚠️ 自动抓取失败，请点击「🖼 上传封面图」手动上传');
+        }
+    });
+};
+
+function compressCoverImageToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('图片读取失败'));
+        reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+                const maxSide = 320;
+                let w = img.width || maxSide;
+                let h = img.height || maxSide;
+                if (w > maxSide || h > maxSide) {
+                    if (w >= h) { h = Math.round(h * maxSide / w); w = maxSide; }
+                    else { w = Math.round(w * maxSide / h); h = maxSide; }
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', 0.86));
+            };
+            img.onerror = () => resolve(String(reader.result || ''));
+            img.src = String(reader.result || '');
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+window.cmsUploadMusicCover = function (input, index) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+        showToast('⚠️ 封面图片需小于 8MB');
+        return;
+    }
+    const list = cmsState && cmsState.music;
+    const item = list && list[index];
+    if (!item) return;
+
+    showToast('⏳ 正在处理封面图...');
+    compressCoverImageToDataUrl(file).then(dataUrl => {
+        cmsDirty = true;
+        // 先立即应用压缩后的本地封面 DataURL，保证无云端或本地直接打开也能立即显示和保存
+        item.cover = dataUrl;
+        if (window.SiteContent && window.SiteContent.data) {
+            window.SiteContent.data.music = cmsState.music;
+            if (typeof loadTrack === 'function') loadTrack(index);
+        }
+        renderCmsPanel();
+
+        // 若已配置 Google 云端且有密钥，同步上传原图/压缩图到 Google Drive 换取云端 URL
+        if (window.hasCloudApi && window.hasCloudApi()) {
+            const token = localStorage.getItem(CMS_TOKEN_KEY) || '';
+            if (token) {
+                const base64 = String(dataUrl).split(',')[1] || '';
+                window.postToApi({
+                    action: 'UPLOAD_FILE',
+                    token,
+                    kind: 'image',
+                    fileName: 'cover_' + Date.now() + '.jpg',
+                    mimeType: 'image/jpeg',
+                    base64
+                }, true).then(j => {
+                    if (j && j.ok && j.file && j.file.url) {
+                        item.cover = j.file.url;
+                        renderCmsPanel();
+                        showToast('✅ 封面图已上传成功，记得点右上角保存下发');
+                    } else {
+                        showToast('✅ 封面图已就绪，记得点右上角保存下发');
+                    }
+                }).catch(() => {
+                    showToast('✅ 封面图已载入本地，记得点右上角保存');
+                });
+                return;
+            }
+        }
+        showToast('✅ 封面图已上传，记得点右上角保存');
+    }).catch(err => showToast('❌ 封面处理失败: ' + err.message));
+};
+
+window.cmsUploadMusicAudio = function (input, index) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+
+    const fname = String(file.name || '').trim();
+    if (/\.(ncm|kwm|kgm|qmc\w*|mflac|mgg)$/i.test(fname)) {
+        alert('⚠️ 网易云客户端下载的 .ncm 等加密格式无法在网页直接播放！\n\n请先使用「格式工厂」或在线「ncm 转 mp3 工具」将其转换为 .mp3 或 .m4a 格式后再上传。');
+        showToast('⚠️ .ncm 加密格式不能直接上传，请先转成 .mp3 后再上传');
+        return;
+    }
+    if (!/\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(fname) && !/^audio\//i.test(file.type || '')) {
+        showToast('⚠️ 请上传 .mp3 或 .m4a 格式的音频文件');
+        return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+        showToast('⚠️ 单个音频文件不能超过 8MB 上限（建议压缩或使用标准音质 mp3）');
+        return;
+    }
+
+    const list = cmsState && cmsState.music;
+    const item = list && list[index];
+    if (!item) return;
+
+    cmsDirty = true;
+    const cleanTitle = fname.replace(/\.[^/.]+$/, '').trim();
+    if (cleanTitle && (!item.name || item.name === '新曲目' || /^曲目\s*\d+$/.test(item.name))) {
+        item.name = cleanTitle;
+    }
+
+    const localKey = `local-audio://${Date.now()}_${fname}`;
+    item.sourceMode = 'upload';
+    item.uploadUrl = localKey;
+    item.url = localKey;
+
+    if (typeof window.saveLocalAudioBlob === 'function') {
+        window.saveLocalAudioBlob(localKey, file);
+    }
+
+    // 同步到前台试听列表，让用户无需等待即可直接点试听
+    if (window.SiteContent && window.SiteContent.data) {
+        window.SiteContent.data.music = cmsState.music;
+    }
+    renderCmsPanel();
+
+    if (!window.hasCloudApi || !window.hasCloudApi()) {
+        showToast('✅ 音频已存入本机缓存（可立即点击「▶ 试听」并保存）');
+        return;
+    }
+
+    const token = getAdminToken();
+    if (!token) {
+        showToast('✅ 音频已存入本机缓存（输入后台密钥后可同步至云端 Drive）');
+        return;
+    }
+
+    showToast('⏳ 正在上传音频文件到 Google Drive...');
+    const reader = new FileReader();
+    reader.onerror = () => showToast('❌ 音频文件读取失败');
+    reader.onload = () => {
+        const base64 = String(reader.result).split(',')[1] || '';
+        window.postToApi({
+            action: 'UPLOAD_FILE',
+            token,
+            kind: 'audio',
+            fileName: fname,
+            mimeType: file.type || (/\.m4a$/i.test(fname) ? 'audio/mp4' : 'audio/mpeg'),
+            base64
+        }, true).then(j => {
+            if (j && j.ok && j.file && j.file.url) {
+                item.sourceMode = 'upload';
+                item.uploadUrl = j.file.url;
+                item.url = j.file.url;
+                if (typeof window.saveLocalAudioBlob === 'function') {
+                    window.saveLocalAudioBlob(j.file.url, file);
+                }
+                if (window.SiteContent && window.SiteContent.data) {
+                    window.SiteContent.data.music = cmsState.music;
+                }
+                renderCmsPanel();
+                showToast('✅ 音频已上传到云端，记得点右上角保存下发');
+            } else {
+                showToast('⚠️ 云端返回异常，已保留本机缓存音频（' + ((j && j.error) || '上传失败') + '）');
+            }
+        }).catch(() => {
+            showToast('⚠️ 云端网络不可达，已保留本机缓存音频（本机可直接播放）');
+        });
+    };
+    reader.readAsDataURL(file);
+};
+
+window.cmsPreviewMusicTrack = function (index) {
+    if (!cmsState || !Array.isArray(cmsState.music) || !cmsState.music[index]) return;
+    if (window.SiteContent) {
+        window.SiteContent.data = window.SiteContent.data || {};
+        window.SiteContent.data.music = cmsState.music;
+    }
+    if (typeof window.previewMusicTrackAt === 'function') {
+        window.previewMusicTrackAt(index);
+    }
+};
 
 function cmsSectionMusic(sec) {
-    const rows = cmsGroupedRows('music', (t, i) => `
+    const rows = cmsGroupedRows('music', (t, i) => {
+        const mode = t.sourceMode === 'upload' ? 'upload' : 'link';
+        const linkVal = String(t.linkUrl !== undefined ? t.linkUrl : (mode === 'link' ? (t.url || '') : '')).trim();
+        const uploadVal = String(t.uploadUrl !== undefined ? t.uploadUrl : (mode === 'upload' ? (t.url || '') : '')).trim();
+        const coverSrc = String(t.cover || '').trim() || getCmsTrackDefaultAvatar(t.name);
+        return `
         <div class="cms-item">
             <div class="cms-item-head">
+                <img id="cmsMusicCoverThumb_${i}" src="${esc(coverSrc)}" alt="封面" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid var(--glass-border);flex-shrink:0;" onerror="this.onerror=null;this.src='${esc(getCmsTrackDefaultAvatar(t.name))}'">
                 <span class="cms-badge ${cmsCat(t, 'music').cls}">${esc(t.name || '未命名')}</span>
+                <span style="font-size:11.5px;color:var(--text-muted);">${mode === 'upload' ? '📤 上传音频文件模式' : '🔗 外链 / 直链 MP3 模式'}</span>
                 <span class="cms-spacer"></span>
+                <button type="button" class="btn-ghost" style="padding:3px 10px;font-size:12px;" onclick="cmsPreviewMusicTrack(${i})" title="立即在右上角音乐控件试听此曲目">▶ 试听</button>
                 <button type="button" class="cms-move" title="上移" onclick="cmsMove('music',${i},-1)">↑</button>
                 <button type="button" class="cms-move" title="下移" onclick="cmsMove('music',${i},1)">↓</button>
             </div>
             <div class="cms-grid">
-                <div class="cms-field"><label>曲目名称</label>
-                    <input type="text" value="${esc(t.name)}" oninput="cmsSet('music',${i},'name',this.value)"></div>
-                <div class="cms-field"><label>音频 URL（Drive / 外链 / music/xxx.mp3）</label>
-                    <input type="text" value="${esc(t.url)}" oninput="cmsSet('music',${i},'url',this.value)"></div>
+                <div class="cms-field"><label>曲目名称（歌手 - 歌名）</label>
+                    <input type="text" id="cmsMusicNameInput_${i}" placeholder="例如：小瀬村晶 - Summer Ghost" value="${esc(t.name || '')}" oninput="cmsSet('music',${i},'name',this.value)"></div>
+                <div class="cms-field"><label>音频来源方式（二选一）</label>
+                    <select onchange="cmsSetMusicSourceMode(${i}, this.value)">
+                        <option value="link" ${mode === 'link' ? 'selected' : ''}>① 填外链 / 直链 MP3（优先：网易云外链或 mp3 直链）</option>
+                        <option value="upload" ${mode === 'upload' ? 'selected' : ''}>② 上传音频文件（本地上传 mp3 / m4a，不依赖外链）</option>
+                    </select></div>
+                ${mode === 'link' ? `
+                <div class="cms-field" style="grid-column: 1 / -1;"><label>🔗 音乐外链 / 直链 MP3 地址（支持直接粘贴网易云分享链接，系统自动转换并抓取封面；若受防盗链/VIP限制可填直链 .mp3）</label>
+                    <input type="text" id="cmsMusicLinkInput_${i}" placeholder="粘贴网易云音乐分享外链 https://music.163.com/#/song?id=... 或直链 https://.../xxx.mp3" value="${esc(linkVal)}" oninput="cmsOnMusicLinkInput(${i}, this.value)" onchange="cmsAutoConvertMusicLink(${i}, this.value)"></div>
+                ` : `
+                <div class="cms-field" style="grid-column: 1 / -1;"><label>📤 已上传音频文件地址（点击下方「上传音频文件」按钮自动填入，支持 .mp3 / .m4a，≤ 8MB）</label>
+                    <input type="text" placeholder="点击下方「📤 上传音频文件」按钮上传本地 mp3 / m4a 文件" value="${esc(uploadVal)}" oninput="cmsSet('music',${i},'uploadUrl',this.value); cmsSet('music',${i},'url',this.value)"></div>
+                `}
+                <div class="cms-field" style="grid-column: 1 / -1;"><label>🖼 封面图 URL（填网易云链接会自动尝试抓取；抓不到或想换图可点下方「上传封面图」）</label>
+                    <input type="text" id="cmsMusicCoverInput_${i}" placeholder="自动抓取或点击下方「🖼 上传封面图」上传本地图片" value="${esc(t.cover || '')}" oninput="cmsSetMusicCover(${i}, this.value)"></div>
             </div>
             <div class="cms-item-bar">
-                <label class="cms-file-btn">🎵 上传音频
-                    <input type="file" accept="audio/*" onchange="cmsUploadFile(this,'audio','music',${i},'url')">
+                ${mode === 'upload' ? `
+                    <label class="cms-file-btn">📤 上传音频文件 (.mp3 / .m4a，≤8MB)
+                        <input type="file" accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a,audio/*" onchange="cmsUploadMusicAudio(this, ${i})">
+                    </label>
+                ` : `
+                    <button type="button" class="btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="cmsFetchMusicCover(${i}, true)">🔍 自动从链接抓封面</button>
+                `}
+                <label class="cms-file-btn">🖼 上传封面图
+                    <input type="file" accept="image/*" onchange="cmsUploadMusicCover(this, ${i})">
                 </label>
+                ${t.cover ? `<button type="button" class="btn-ghost" style="padding:5px 10px;font-size:12px;" onclick="cmsSetMusicCover(${i}, ''); renderCmsPanel();">🧹 清除封面</button>` : ''}
+                <span class="cms-spacer"></span>
                 <button type="button" class="cms-del" onclick="cmsDel('music',${i})">🗑 删除</button>
             </div>
-        </div>`);
+        </div>`;
+    });
+
+    const usageGuideBox = `
+        <div class="cms-subbox" style="margin-bottom:14px; border-left: 3.5px solid #007AFF;">
+            <div class="cms-subbox-title">📖 背景音乐歌单使用说明（下次添加音乐直接照着这 3 步操作）</div>
+            <div style="font-size:13px; line-height:1.75; color:var(--text-color); margin-top:6px;">
+                <div><strong>1. 优先方式：直接填网易云音乐的分享外链，能放就用外链。</strong></div>
+                <div style="padding-left:16px; color:var(--text-muted); font-size:12.5px;">
+                    直接把网易云网页/客户端复制的分享链接（如 <code>https://music.163.com/#/song?id=xxx</code>）或直链 <code>.mp3</code> 填进输入框，系统会自动转成播放地址并尝试自动抓取专辑封面。如果该歌曲因网易云 VIP / 版权防盗链无法外链播放，右上角音乐控件会直接提示<strong>「⚠️ 该链接无法直接播放」</strong>。
+                </div>
+                <div style="margin-top:6px;"><strong>2. 如果外链放不了，就改成「上传音频文件」：</strong></div>
+                <ul style="margin:3px 0 6px 32px; color:var(--text-muted); font-size:12.5px;">
+                    <li>在曲目的「音频来源方式」下拉框切换到<strong>「② 上传音频文件」</strong>，自己上传 <code>mp3</code> / <code>m4a</code> 音频文件到后台，前端直接播你上传的文件，不再依赖外链。</li>
+                    <li><strong style="color:#ff3b30;">⚠️ 加密格式特别提醒：</strong>网易云客户端下载下来的音乐经常是加密的 <strong><code>.ncm</code></strong> 格式，<strong>不能直接上传</strong>，需要先用格式转换工具（如<strong>格式工厂</strong>、或在线 <strong>ncm 转 mp3 工具</strong>）把它转成 <strong><code>.mp3</code></strong> 后再上传。</li>
+                    <li><strong>支持格式与体积上限：</strong>支持 <strong><code>.mp3</code>、<code>.m4a</code></strong> 格式，单个音频文件大小上限 <strong>≤ 8MB</strong>。</li>
+                </ul>
+                <div><strong>3. 二选一与封面图设置：</strong>每首歌都可以自由选择<strong>「填外链」</strong>或<strong>「上传音频文件」</strong>二选一；如果音乐链接抓不到封面，点击曲目下方的<strong>「🖼 上传封面图」</strong>即可上传你自己的本地封面图片（随时可改、可换）。</div>
+            </div>
+        </div>
+    `;
 
     const countBadge = `<span class="cms-sec-stat">共 ${(cmsState.music || []).length} 首</span>`;
     const body = `
-        <label class="cms-check">
-            <input type="checkbox" ${cmsState.musicEnabled === false ? '' : 'checked'} onchange="cmsSetFlag('musicEnabled',this.checked)"> 启用背景音乐播放器
+        ${usageGuideBox}
+        <label class="cms-check" style="margin-bottom:10px; display:inline-flex;">
+            <input type="checkbox" ${cmsState.musicEnabled === false ? '' : 'checked'} onchange="cmsSetFlag('musicEnabled',this.checked)"> 启用前台悬浮背景音乐播放器
         </label>
         ${rows || '<div class="cms-tip">歌单为空</div>'}
         <button type="button" class="cms-add" onclick="cmsAdd('music')">➕ 新增曲目</button>`;
@@ -2651,7 +3011,15 @@ window.cmsAdd = function (group) {
             helpText: ''
         });
     } else if (group === 'music') {
-        cmsState[group].push({ name: '新曲目', url: '' });
+        cmsState[group].push({
+            id: 'music_' + Date.now(),
+            name: '新曲目',
+            sourceMode: 'link',
+            url: '',
+            linkUrl: '',
+            uploadUrl: '',
+            cover: ''
+        });
     } else if (group === 'netTestList') {
         cmsState[group].push({
             id: 'net_' + Date.now(),

@@ -294,6 +294,32 @@
     window.normalizeSecretZoneCards = normalizeSecretZoneCards;
     window.secretZoneList = [];
 
+    /* ---------------- 🎵 背景音乐歌单归一化（支持「填外链/直链」与「上传音频文件」二选一 + 封面图） ---------------- */
+    function normalizeMusicTracks(list) {
+        if (!Array.isArray(list)) return [];
+        return list.map((item, idx) => {
+            const o = Object.assign({}, item);
+            const rawUrl = String(o.url || '').trim();
+            const isDriveOrLocalUpload = /^(https?:\/\/drive\.google\.com\/|https?:\/\/lh3\.googleusercontent\.com\/|local-audio:\/\/|data:audio\/)/i.test(rawUrl);
+            let sourceMode = (o.sourceMode === 'upload' || o.sourceMode === 'link')
+                ? o.sourceMode
+                : (o.uploadUrl || isDriveOrLocalUpload ? 'upload' : 'link');
+            let linkUrl = String(o.linkUrl !== undefined ? o.linkUrl : (!isDriveOrLocalUpload ? rawUrl : '')).trim();
+            let uploadUrl = String(o.uploadUrl !== undefined ? o.uploadUrl : (isDriveOrLocalUpload ? rawUrl : '')).trim();
+            const activeUrl = sourceMode === 'upload' ? (uploadUrl || rawUrl) : (linkUrl || rawUrl);
+            return {
+                id: String(o.id || ('music_' + (idx + 1))).trim(),
+                name: String(o.name || ('曲目 ' + (idx + 1))).trim(),
+                sourceMode: sourceMode,
+                url: activeUrl,
+                linkUrl: linkUrl,
+                uploadUrl: uploadUrl,
+                cover: String(o.cover || '').trim()
+            };
+        });
+    }
+    window.normalizeMusicTracks = normalizeMusicTracks;
+
     const DEFAULT_SECTION_BLOCKS = {
         wifi: {
             title: '📶 代理 & WiFi',
@@ -463,10 +489,14 @@
             pcSoftList: normalizePcSoftCards(DEFAULT_PC_SOFT_LIST),
             secretZoneList: [],
             secretZoneEnabled: false,
-            music: (typeof musicFiles !== 'undefined' ? musicFiles : []).map(n => ({
+            music: normalizeMusicTracks((typeof musicFiles !== 'undefined' ? musicFiles : []).map(n => ({
                 name: String(n).replace(/\.[^/.]+$/, ''),
-                url: 'music/' + n
-            })),
+                sourceMode: 'link',
+                url: 'music/' + n,
+                linkUrl: 'music/' + n,
+                uploadUrl: '',
+                cover: ''
+            }))),
             musicEnabled: true,
             background: {
                 mode: 'auto',
@@ -493,7 +523,7 @@
         if (Array.isArray(remote.pcSoftList)) out.pcSoftList = normalizePcSoftCards(remote.pcSoftList);
         if (Array.isArray(remote.secretZoneList)) out.secretZoneList = normalizeSecretZoneCards(remote.secretZoneList);
         if (typeof remote.secretZoneEnabled === 'boolean') out.secretZoneEnabled = remote.secretZoneEnabled;
-        if (Array.isArray(remote.music)) out.music = remote.music;
+        if (Array.isArray(remote.music)) out.music = normalizeMusicTracks(remote.music);
         ['wifiTitle', 'wifiTip', 'netTestTip'].forEach(k => {
             if (typeof remote[k] === 'string') out[k] = remote[k];
         });
@@ -715,6 +745,9 @@
         if (Array.isArray(d.secretZoneList)) {
             d.secretZoneList = normalizeSecretZoneCards(d.secretZoneList);
             window.secretZoneList = d.secretZoneList;
+        }
+        if (Array.isArray(d.music)) {
+            d.music = normalizeMusicTracks(d.music);
         }
         d.secretZoneEnabled = !!d.secretZoneEnabled;
         d.sectionBlocks = normalizeSectionBlocks(d.sectionBlocks, d);
