@@ -10,23 +10,31 @@ let cmsDirty = false; // 有未保存的本地修改时，不允许被远程内�
 // 审计大屏所有区块默认均为折叠状态（打开页面即收起，点击才展开）
 const cmsCollapsed = {
     topbar: true,
+    help: true,
     proxy: true,
     company: true,
     wifi: true,
     music: true,
     bg: true,
     guide: true,
-    nettest: true
+    nettest: true,
+    appstore: true,
+    pcsoft: true,
+    secret: true
 };
 
 const CMS_SECTIONS = [
-    { id: 'cms-sec-proxy',   key: 'proxy',   num: 1, short: '前置代理', title: '🌐 前置代理二维码' },
-    { id: 'cms-sec-company', key: 'company', num: 2, short: '公司WiFi', title: '🏢 公司 WiFi 二维码' },
-    { id: 'cms-sec-wifi',    key: 'wifi',    num: 3, short: '基础网络', title: '📶 基础网络卡片（首屏动态卡片）' },
-    { id: 'cms-sec-music',   key: 'music',   num: 4, short: '音乐',     title: '🎵 背景音乐歌单' },
-    { id: 'cms-sec-bg',      key: 'bg',      num: 5, short: '背景',     title: '🎨 背景与视效' },
-    { id: 'cms-sec-guide',   key: 'guide',   num: 6, short: '教程',     title: '📖 使用教程正文（支持 Markdown / HTML）' },
-    { id: 'cms-sec-nettest', key: 'nettest', num: 7, short: '网络测试', title: '🧪 IP 生成页 · 网络测试卡片' }
+    { id: 'cms-sec-proxy',    key: 'proxy',    num: 1,  short: '前置代理', title: '🌐 前置代理二维码' },
+    { id: 'cms-sec-company',  key: 'company',  num: 2,  short: '公司WiFi', title: '🏢 公司 WiFi 二维码' },
+    { id: 'cms-sec-wifi',     key: 'wifi',     num: 3,  short: '基础网络', title: '📶 基础网络卡片（首屏动态卡片）' },
+    { id: 'cms-sec-music',    key: 'music',    num: 4,  short: '音乐',     title: '🎵 背景音乐歌单' },
+    { id: 'cms-sec-bg',       key: 'bg',       num: 5,  short: '背景',     title: '🎨 背景与视效' },
+    { id: 'cms-sec-guide',    key: 'guide',    num: 6,  short: '教程',     title: '📖 使用教程正文（支持 Markdown / HTML）' },
+    { id: 'cms-sec-nettest',  key: 'nettest',  num: 7,  short: '网络测试', title: '🧪 IP 生成页 · 网络测试卡片' },
+    { id: 'cms-sec-help',     key: 'help',     num: 8,  short: '❓问号开关', title: '❓ 各区块右上角问号 (?) 显示开关与点击弹窗内容总控' },
+    { id: 'cms-sec-appstore', key: 'appstore', num: 9,  short: '📱手机App', title: '📱 填写 IP 报表页 · 手机 App 下载（App Store）' },
+    { id: 'cms-sec-pcsoft',   key: 'pcsoft',   num: 10, short: '💻电脑软件', title: '💻 填写 IP 报表页 · 电脑软件' },
+    { id: 'cms-sec-secret',   key: 'secret',   num: 11, short: '🔒隐藏专区', title: '🔒 填写 IP 报表页 · 隐藏专区（默认隐藏，总开关控制）' }
 ];
 
 // 初始化全局卡片数据的 visible 默认值（默认 true），并挂载日夜切换时的视频背景联动
@@ -493,6 +501,204 @@ window.renderNetTestCards = function () {
     });
 };
 
+/* ---------------- 📋 填写 IP 报表页底部三大新区块渲染：手机 App 下载 / 电脑软件 / 隐藏专区 ---------------- */
+
+function adjustBatchPopcardPosition(slotEl) {
+    if (!slotEl) return;
+    const popEl = slotEl.querySelector('.app-dl-popcard, .pc-soft-popcard');
+    if (!popEl) return;
+    popEl.classList.remove('align-left', 'align-right');
+    try {
+        const slotRect = slotEl.getBoundingClientRect();
+        const parentEl = slotEl.parentElement || document.body;
+        const parentRect = parentEl.getBoundingClientRect();
+        const centerOffset = (slotRect.left + slotRect.width / 2) - parentRect.left;
+        const parentWidth = parentRect.width || window.innerWidth;
+        if (centerOffset < 130) {
+            popEl.classList.add('align-left');
+        } else if (parentWidth - centerOffset < 130) {
+            popEl.classList.add('align-right');
+        }
+    } catch (e) {}
+}
+
+function renderQrChipSectionGrid(gridId, listKey, rawList, showIconInChip) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    const list = Array.isArray(rawList) ? rawList : [];
+    list.forEach((item, idx) => {
+        if (!item || item.visible === false) return;
+        const isImgMode = item.qrMode === 'image' && Boolean(String(item.imgPath || '').trim());
+        const { fullUrl } = normalizeNetTestUrlPair(item.url);
+        if (!isImgMode && !fullUrl && !item.name) return;
+
+        const iconUrl = typeof window.getDefaultAppIcon === 'function'
+            ? window.getDefaultAppIcon(item.name, item.icon)
+            : String(item.icon || '').trim();
+        const showHelp = hasCardHelpEnabled(item);
+
+        const slotEl = document.createElement('div');
+        slotEl.className = 'app-dl-slot';
+        slotEl.setAttribute('data-slot-idx', String(idx));
+
+        slotEl.innerHTML = `
+            <div class="app-dl-chip" role="button" tabindex="0" aria-expanded="false">
+                ${showIconInChip && iconUrl ? `<img class="app-dl-chip-icon" src="${esc(iconUrl)}" alt="${esc(item.name)}" onerror="this.style.display='none'">` : ''}
+                <span class="app-dl-chip-name">${esc(item.name || '未命名')}</span>
+                ${showHelp ? `<button type="button" class="card-help-btn app-chip-help-btn" title="查看说明" aria-label="查看说明" onclick="event.stopPropagation(); openAnyCardHelp('${listKey}', ${idx})">?</button>` : ''}
+            </div>
+            <div class="app-dl-popcard">
+                ${showHelp ? `<button type="button" class="card-help-btn" title="查看说明" aria-label="查看说明" onclick="event.stopPropagation(); openAnyCardHelp('${listKey}', ${idx})">?</button>` : ''}
+                <div class="app-dl-pop-title">
+                    ${iconUrl ? `<img class="app-dl-pop-mini-icon" src="${esc(iconUrl)}" alt="" onerror="this.style.display='none'">` : ''}
+                    <span>${esc(item.name || '未命名')}</span>
+                </div>
+                <div class="app-dl-qr-wrap">
+                    <img class="app-dl-qr-img" src="${isImgMode ? esc(item.imgPath) : ''}" alt="${esc(item.name)} 二维码">
+                    ${iconUrl ? `<div class="app-dl-qr-logo-box"><img class="app-dl-qr-logo" src="${esc(iconUrl)}" alt="${esc(item.name)}" onerror="this.parentElement.style.display='none'"></div>` : ''}
+                </div>
+                <div class="app-dl-desc">${esc(item.desc || '使用手机相机扫码直达')}</div>
+            </div>
+        `;
+
+        // 鼠标悬停：原地放大展开；鼠标移开：恢复小图标
+        slotEl.addEventListener('mouseenter', () => {
+            if (window.matchMedia && window.matchMedia('(hover: hover)').matches) {
+                grid.querySelectorAll('.app-dl-slot.is-expanded').forEach(other => {
+                    if (other !== slotEl) other.classList.remove('is-expanded');
+                });
+                adjustBatchPopcardPosition(slotEl);
+                slotEl._hoverEnterAt = Date.now();
+                slotEl.classList.add('is-expanded');
+            }
+        });
+        slotEl.addEventListener('mouseleave', () => {
+            slotEl.classList.remove('is-expanded');
+        });
+
+        // 点击图标或展开卡片：原地切换展开 / 收起（不新开窗口/新标签）
+        slotEl.addEventListener('click', (e) => {
+            if (e.target && e.target.closest && e.target.closest('.card-help-btn')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const now = Date.now();
+            if (slotEl.classList.contains('is-expanded') && slotEl._hoverEnterAt && (now - slotEl._hoverEnterAt < 250)) {
+                slotEl._hoverEnterAt = 0;
+                return;
+            }
+            slotEl._hoverEnterAt = 0;
+            const willExpand = !slotEl.classList.contains('is-expanded');
+            grid.querySelectorAll('.app-dl-slot.is-expanded').forEach(other => {
+                if (other !== slotEl) other.classList.remove('is-expanded');
+            });
+            if (willExpand) {
+                adjustBatchPopcardPosition(slotEl);
+                slotEl.classList.add('is-expanded');
+            } else {
+                slotEl.classList.remove('is-expanded');
+            }
+        });
+
+        grid.appendChild(slotEl);
+
+        if (!isImgMode && fullUrl && typeof waitForQRCode === 'function') {
+            waitForQRCode(() => {
+                const imgEl = slotEl.querySelector('img.app-dl-qr-img');
+                QRCode.toDataURL(fullUrl, { width: 260, margin: 1, errorCorrectionLevel: 'H' }, (err, dataUrl) => {
+                    if (!err && dataUrl && imgEl) {
+                        imgEl.src = dataUrl;
+                    }
+                });
+            });
+        }
+    });
+}
+
+function renderPcSoftSectionGrid(rawList) {
+    const grid = document.getElementById('pcSoftGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    const list = Array.isArray(rawList) ? rawList : [];
+    list.forEach((item, idx) => {
+        if (!item || item.visible === false) return;
+        const { fullUrl } = normalizeNetTestUrlPair(item.url);
+        if (!item.name && !fullUrl) return;
+        const showHelp = hasCardHelpEnabled(item);
+
+        const slotEl = document.createElement('div');
+        slotEl.className = 'pc-soft-slot';
+        slotEl.setAttribute('data-pc-idx', String(idx));
+
+        slotEl.innerHTML = `
+            <a class="pc-soft-chip" href="${esc(fullUrl || '#')}" target="_blank" rel="noopener noreferrer" title="点击新标签页打开 ${esc(item.name)}">
+                <span class="pc-soft-chip-name">${esc(item.name || '未命名软件')}</span>
+                ${showHelp ? `<button type="button" class="card-help-btn pc-chip-help-btn" title="查看说明" aria-label="查看说明" onclick="event.preventDefault(); event.stopPropagation(); openAnyCardHelp('pcSoftList', ${idx})">?</button>` : ''}
+            </a>
+            <a class="pc-soft-popcard" href="${esc(fullUrl || '#')}" target="_blank" rel="noopener noreferrer" title="点击新标签页直达下载：${esc(fullUrl)}">
+                ${showHelp ? `<button type="button" class="card-help-btn" title="查看说明" aria-label="查看说明" onclick="event.preventDefault(); event.stopPropagation(); openAnyCardHelp('pcSoftList', ${idx})">?</button>` : ''}
+                <div class="pc-soft-pop-title">
+                    <span>${esc(item.name || '未命名软件')}</span>
+                    <span class="pc-soft-ext-icon" aria-hidden="true">↗</span>
+                </div>
+                <div class="pc-soft-desc">${esc(item.desc || '点击直接在新标签页打开官方下载页面')}</div>
+            </a>
+        `;
+
+        slotEl.addEventListener('mouseenter', () => {
+            if (window.matchMedia && window.matchMedia('(hover: hover)').matches) {
+                grid.querySelectorAll('.pc-soft-slot.is-expanded').forEach(other => {
+                    if (other !== slotEl) other.classList.remove('is-expanded');
+                });
+                adjustBatchPopcardPosition(slotEl);
+                slotEl.classList.add('is-expanded');
+            }
+        });
+        slotEl.addEventListener('mouseleave', () => {
+            slotEl.classList.remove('is-expanded');
+        });
+
+        grid.appendChild(slotEl);
+    });
+}
+
+window.renderBatchExtraSections = function () {
+    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
+    const appList = (content && Array.isArray(content.appStoreList))
+        ? content.appStoreList
+        : (Array.isArray(window.appStoreList) ? window.appStoreList : []);
+    const pcList = (content && Array.isArray(content.pcSoftList))
+        ? content.pcSoftList
+        : (Array.isArray(window.pcSoftList) ? window.pcSoftList : []);
+    const secretList = (content && Array.isArray(content.secretZoneList))
+        ? content.secretZoneList
+        : (Array.isArray(window.secretZoneList) ? window.secretZoneList : []);
+    const secretEnabled = Boolean(content && content.secretZoneEnabled);
+
+    // 1. 手机 App 下载（App Store）
+    renderQrChipSectionGrid('appStoreGrid', 'appStoreList', appList, true);
+
+    // 2. 电脑软件
+    renderPcSoftSectionGrid(pcList);
+
+    // 3. 隐藏专区（默认完全不显示，开启总开关后才出现）
+    const secretSec = document.getElementById('secretZoneSection');
+    if (secretSec) {
+        secretSec.style.display = secretEnabled ? 'block' : 'none';
+    }
+    if (secretEnabled) {
+        renderQrChipSectionGrid('secretZoneGrid', 'secretZoneList', secretList, true);
+    }
+};
+
+// 点击页面空白处时自动收起所有已展开的 App 卡片
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.app-dl-slot')) return;
+    document.querySelectorAll('.app-dl-slot.is-expanded').forEach(el => el.classList.remove('is-expanded'));
+});
+
 /**
  * 覆盖前端基础网络卡片渲染：过滤掉 visible === false 的卡片
  */
@@ -583,6 +789,28 @@ function normalizeCmsState(state) {
     } else if (typeof window.normalizeNetTestCards === 'function') {
         state.netTestList = window.normalizeNetTestCards(state.netTestList);
     }
+    if (!Array.isArray(state.appStoreList)) {
+        state.appStoreList = (typeof window.normalizeAppStoreCards === 'function' && Array.isArray(window.appStoreList))
+            ? window.normalizeAppStoreCards(window.appStoreList)
+            : [];
+    } else if (typeof window.normalizeAppStoreCards === 'function') {
+        state.appStoreList = window.normalizeAppStoreCards(state.appStoreList);
+    }
+    if (!Array.isArray(state.pcSoftList)) {
+        state.pcSoftList = (typeof window.normalizePcSoftCards === 'function' && Array.isArray(window.pcSoftList))
+            ? window.normalizePcSoftCards(window.pcSoftList)
+            : [];
+    } else if (typeof window.normalizePcSoftCards === 'function') {
+        state.pcSoftList = window.normalizePcSoftCards(state.pcSoftList);
+    }
+    if (!Array.isArray(state.secretZoneList)) {
+        state.secretZoneList = (typeof window.normalizeSecretZoneCards === 'function' && Array.isArray(window.secretZoneList))
+            ? window.normalizeSecretZoneCards(window.secretZoneList)
+            : [];
+    } else if (typeof window.normalizeSecretZoneCards === 'function') {
+        state.secretZoneList = window.normalizeSecretZoneCards(state.secretZoneList);
+    }
+    state.secretZoneEnabled = !!state.secretZoneEnabled;
     if (typeof window.normalizeSectionBlocks === 'function') {
         state.sectionBlocks = window.normalizeSectionBlocks(state.sectionBlocks, state);
         state.wifiTitle = state.sectionBlocks.wifi.title;
@@ -662,6 +890,48 @@ window.cmsSetCardQrMode = function (group, index, mode) {
     renderCmsPanel();
 };
 
+/** 独立开关：一键开启 / 关闭任意区块右上角「?」问号按钮显示 */
+window.cmsToggleSectionHelp = function (secKey, enabled) {
+    if (!cmsState) cmsState = normalizeCmsState(clone(window.getSiteContent()));
+    cmsDirty = true;
+    if (!cmsState.sectionBlocks && typeof window.normalizeSectionBlocks === 'function') {
+        cmsState.sectionBlocks = window.normalizeSectionBlocks(null, cmsState);
+    }
+    cmsState.sectionBlocks = cmsState.sectionBlocks || {};
+    const def = (window.DEFAULT_SECTION_BLOCKS && window.DEFAULT_SECTION_BLOCKS[secKey]) || {};
+    const b = cmsState.sectionBlocks[secKey] || {
+        title: def.title || '',
+        tip: def.tip || '',
+        helpEnabled: false,
+        helpType: def.helpType || 'text',
+        helpImg: def.helpImg || '',
+        helpText: def.helpText || ''
+    };
+    b.helpEnabled = !!enabled;
+    if (b.helpEnabled) {
+        if (b.helpType !== 'image' && b.helpType !== 'text') {
+            b.helpType = String(b.helpImg || def.helpImg || '').trim() ? 'image' : 'text';
+        }
+        if (b.helpType === 'text' && !String(b.helpText || '').trim()) {
+            b.helpText = def.helpText || `# ${b.title || '区块使用说明'}\n\n在此输入本区块的说明内容（支持 Markdown）…`;
+        }
+    } else {
+        b.helpType = '';
+    }
+    cmsState.sectionBlocks[secKey] = b;
+
+    // 实时同步到当前前端页面，让用户切换开关立刻看到右上角问号显示/消失
+    if (window.SiteContent) {
+        window.SiteContent.data = cmsState;
+        window.applySiteContent();
+    }
+    renderCmsPanel();
+    const ctrlChk = document.getElementById('cfgShowWifiHelpBtnInput');
+    if (ctrlChk && secKey === 'wifi') {
+        ctrlChk.checked = !!b.helpEnabled;
+    }
+};
+
 /** 通用：修改区块级标题、提示语与右上角「?」问号配置 */
 window.cmsSetSectionBlock = function (secKey, field, value) {
     if (!cmsState) return;
@@ -670,7 +940,7 @@ window.cmsSetSectionBlock = function (secKey, field, value) {
         cmsState.sectionBlocks = window.normalizeSectionBlocks(null, cmsState);
     }
     cmsState.sectionBlocks = cmsState.sectionBlocks || {};
-    cmsState.sectionBlocks[secKey] = cmsState.sectionBlocks[secKey] || { title: '', tip: '', helpType: '', helpImg: '', helpText: '' };
+    cmsState.sectionBlocks[secKey] = cmsState.sectionBlocks[secKey] || { title: '', tip: '', helpEnabled: false, helpType: '', helpImg: '', helpText: '' };
     cmsState.sectionBlocks[secKey][field] = value;
 
     // 同步旧字段
@@ -682,9 +952,14 @@ window.cmsSetSectionBlock = function (secKey, field, value) {
     }
 
     if (field === 'helpType') {
+        cmsState.sectionBlocks[secKey].helpEnabled = (value === 'image' || value === 'text');
         if (value === 'text' && !cmsState.sectionBlocks[secKey].helpText) {
             const defTitle = cmsState.sectionBlocks[secKey].title || '区块使用说明';
             cmsState.sectionBlocks[secKey].helpText = `# ${defTitle}\n\n在此输入本区块的说明内容（支持 Markdown）…`;
+        }
+        if (window.SiteContent) {
+            window.SiteContent.data = cmsState;
+            window.applySiteContent();
         }
         renderCmsPanel();
     }
@@ -828,6 +1103,7 @@ function renderCmsPanel() {
             </div>
         </div>
 
+        ${cmsSectionHelpCenter(CMS_SECTIONS[7])}
         ${cmsSectionProxy('proxyList', CMS_SECTIONS[0])}
         ${cmsSectionProxy('companyWifiList', CMS_SECTIONS[1])}
         ${cmsSectionWifi(CMS_SECTIONS[2])}
@@ -835,6 +1111,9 @@ function renderCmsPanel() {
         ${cmsSectionBackground(CMS_SECTIONS[4])}
         ${cmsSectionGuide(CMS_SECTIONS[5])}
         ${cmsSectionNetTest(CMS_SECTIONS[6])}
+        ${cmsSectionAppStore(CMS_SECTIONS[8])}
+        ${cmsSectionPcSoft(CMS_SECTIONS[9])}
+        ${cmsSectionSecretZone(CMS_SECTIONS[10])}
     `;
 }
 
@@ -1323,35 +1602,78 @@ function renderProxyNodesSubbox() {
 
 function renderSectionBlockConfig(secKey, sectionLabel) {
     const blocks = (cmsState && cmsState.sectionBlocks) || (window.DEFAULT_SECTION_BLOCKS || {});
-    const b = (blocks && blocks[secKey]) || { title: '', tip: '', helpType: '', helpImg: '', helpText: '' };
-    const hType = (b.helpType === 'image' || b.helpType === 'text') ? b.helpType : '';
+    const b = (blocks && blocks[secKey]) || { title: '', tip: '', helpEnabled: false, helpType: '', helpImg: '', helpText: '' };
+    const isHelpOn = b.helpEnabled !== false && (b.helpType === 'image' || b.helpType === 'text');
+    const hType = (b.helpType === 'image' || b.helpType === 'text')
+        ? b.helpType
+        : (String(b.helpImg || '').trim() ? 'image' : 'text');
     return `
         <div class="cms-subbox" style="margin-bottom:14px;">
-            <div class="cms-subbox-title">📌 ${sectionLabel} · 区块标题、顶部提示语 &amp; 右上角「?」问号帮助设置</div>
+            <div class="cms-subbox-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <span>📌 ${sectionLabel} · 区块标题、顶部提示语 &amp; 右上角「?」问号开关</span>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <label class="cms-vis-switch ${isHelpOn ? 'is-on' : 'is-off'}" title="开启或关闭本区块标题右上角的圆形问号 (?) 按钮">
+                        <input type="checkbox" ${isHelpOn ? 'checked' : ''} onchange="cmsToggleSectionHelp('${secKey}', this.checked)">
+                        <span class="cms-vis-track"><span class="cms-vis-thumb"></span></span>
+                        <span class="cms-vis-label">${isHelpOn ? '❓ 显示右上角问号' : '🚫 已隐藏问号'}</span>
+                    </label>
+                    ${isHelpOn ? `<button type="button" class="btn-ghost" style="padding:3px 10px;font-size:12px;" onclick="openSectionHelp('${secKey}')">👀 预览问号弹窗</button>` : ''}
+                </div>
+            </div>
             <div class="cms-grid">
                 <div class="cms-field"><label>区块标题</label>
                     <input type="text" value="${esc(b.title || '')}" oninput="cmsSetSectionBlock('${secKey}','title',this.value)"></div>
                 <div class="cms-field"><label>顶部提示语（留空则整行隐藏）</label>
                     <input type="text" placeholder="留空则不显示提示文字" value="${esc(b.tip || '')}" oninput="cmsSetSectionBlock('${secKey}','tip',this.value)"></div>
-                <div class="cms-field"><label>❓ 区块右上角「?」问号帮助</label>
+                <div class="cms-field"><label>❓ 右上角「?」显示状态与点击出现内容类型</label>
                     <select onchange="cmsSetSectionBlock('${secKey}','helpType',this.value)">
-                        <option value="" ${!hType ? 'selected' : ''}>🚫 不显示问号（关闭）</option>
-                        <option value="text" ${hType === 'text' ? 'selected' : ''}>📝 文字说明（点击弹出文字/Markdown浮层）</option>
-                        <option value="image" ${hType === 'image' ? 'selected' : ''}>🖼 图片说明（点击弹出图片浮层）</option>
+                        <option value="" ${!isHelpOn ? 'selected' : ''}>🚫 不显示问号（关闭）</option>
+                        <option value="image" ${isHelpOn && hType === 'image' ? 'selected' : ''}>🖼 显示问号 · 点击弹出图片说明</option>
+                        <option value="text" ${isHelpOn && hType === 'text' ? 'selected' : ''}>📝 显示问号 · 点击弹出文字/Markdown说明</option>
                     </select></div>
-                ${hType === 'image' ? `<div class="cms-field"><label>问号弹窗图片 URL</label>
+                ${isHelpOn && hType === 'image' ? `<div class="cms-field"><label>问号弹窗图片 URL</label>
                     <input type="text" placeholder="images/xxx.jpg 或 Drive 链接" value="${esc(b.helpImg || '')}" oninput="cmsSetSectionBlock('${secKey}','helpImg',this.value)"></div>` : ''}
             </div>
-            ${hType === 'image' ? `<div class="cms-item-bar" style="margin-top:10px;">
+            ${isHelpOn && hType === 'image' ? `<div class="cms-item-bar" style="margin-top:10px;">
                 ${b.helpImg ? `<img class="cms-thumb" src="${esc(b.helpImg)}" alt="问号说明图预览" onerror="imgFallback(this)">` : ''}
                 <label class="cms-file-btn">📤 上传问号说明图片
                     <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','__section__','${secKey}','helpImg')">
                 </label>
             </div>` : ''}
-            ${hType === 'text' ? `<div class="cms-field mt-15"><label>❓ 区块右上角问号弹窗文字内容（支持 Markdown：# 标题、**加粗**、- 列表、:::success 提示框…）</label>
+            ${isHelpOn && hType === 'text' ? `<div class="cms-field mt-15"><label>❓ 点击右上角问号弹出的文字内容（支持 Markdown：# 标题、**加粗**、- 列表、:::success 提示框…）</label>
                 <textarea class="cms-guide-editor" rows="5" oninput="cmsSetSectionBlock('${secKey}','helpText',this.value)">${esc(b.helpText || '')}</textarea></div>` : ''}
         </div>
     `;
+}
+
+/** 独立总控分区：8. 各区块右上角问号 (?) 显示开关与点击弹窗内容总控 */
+function cmsSectionHelpCenter(sec) {
+    const blocks = (cmsState && cmsState.sectionBlocks) || (window.DEFAULT_SECTION_BLOCKS || {});
+    const allSecKeys = [
+        { key: 'wifi',       label: '1️⃣ 「📶 代理 & WiFi」主标题右上角问号（首屏最上方右侧问号）' },
+        { key: 'proxy',      label: '2️⃣ 「前置代理二维码」标题右上角问号' },
+        { key: 'company',    label: '3️⃣ 「🏢 公司 WiFi 二维码」标题右上角问号' },
+        { key: 'softRouter', label: '4️⃣ 「软路由分流通道」标题右上角问号' },
+        { key: 'quick',      label: '5️⃣ 「⚡ IP 二维码生成」标题右上角问号' },
+        { key: 'netTest',    label: '6️⃣ 「🌐 网络测试」标题右上角问号' },
+        { key: 'batch',      label: '7️⃣ 「📋 填写 IP 报表」标题右上角问号' },
+        { key: 'appStore',   label: '8️⃣ 「📱 手机 App 下载（App Store）」标题右上角问号' },
+        { key: 'pcSoft',     label: '9️⃣ 「💻 电脑软件」标题右上角问号' },
+        { key: 'secretZone', label: '🔟 「🔒 隐藏专区」标题右上角问号' },
+        { key: 'single',     label: '1️⃣1️⃣ 「🔍 IP 提取与代理检测」标题右上角问号' }
+    ];
+    const onCount = allSecKeys.filter(item => {
+        const b = blocks[item.key] || {};
+        return b.helpEnabled !== false && (b.helpType === 'image' || b.helpType === 'text');
+    }).length;
+    const badge = `<span class="cms-sec-stat">已开启 ${onCount} / 共 ${allSecKeys.length} 个区块问号</span>`;
+    const body = `
+        <div class="cms-tip">
+            💡 <strong>集中管理全站所有区块右上角的圆形问号（?）按钮</strong>：每个区块都可以用右侧的<strong>「显示右上角问号 / 已隐藏问号」</strong>开关单独控制显隐，并自由选择点击问号后弹出<strong>图片</strong>还是<strong>文字说明</strong>。切换后记得点右上角「🚀 保存并全网下发」。
+        </div>
+        ${allSecKeys.map(item => renderSectionBlockConfig(item.key, item.label)).join('')}
+    `;
+    return cmsWrapSection(sec, body, badge);
 }
 
 function renderCardHelpFieldSelect(group, index, card) {
@@ -1434,6 +1756,22 @@ function cmsRefreshAllLinkQrPreviews() {
             }
             QRCode.toDataURL(fullUrl, { width: 120, margin: 1 }, (err, dataUrl) => {
                 if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
+            });
+        });
+        // 5. 手机 App 下载 & 隐藏专区
+        ['appStoreList', 'secretZoneList'].forEach(group => {
+            (cmsState[group] || []).forEach((item, idx) => {
+                if (!item || item.qrMode === 'image') return;
+                const imgEl = document.getElementById(`cmsQrPreview_${group}_${idx}`);
+                if (!imgEl) return;
+                const { fullUrl } = normalizeNetTestUrlPair(item.url);
+                if (!fullUrl) {
+                    imgEl.removeAttribute('src');
+                    return;
+                }
+                QRCode.toDataURL(fullUrl, { width: 120, margin: 1, errorCorrectionLevel: 'H' }, (err, dataUrl) => {
+                    if (!err && dataUrl && imgEl) imgEl.src = dataUrl;
+                });
             });
         });
     });
@@ -1808,10 +2146,12 @@ function cmsSectionGuide(sec) {
     return cmsWrapSection(sec, body, '');
 }
 
-/* ---------------- 7. IP 生成页 · 网络测试卡片 ---------------- */
+/* ---------------- 7. IP 生成页 · 网络测试卡片 & 拖拽排序通用能力 ---------------- */
 
-window.cmsMoveNetTest = function (index, dir) {
-    const list = cmsState && cmsState.netTestList;
+let cmsDraggingInfo = null;
+
+window.cmsMoveLinear = function (group, index, dir) {
+    const list = cmsState && cmsState[group];
     if (!Array.isArray(list) || !list[index]) return;
     const target = index + dir;
     if (target < 0 || target >= list.length) return;
@@ -1822,6 +2162,74 @@ window.cmsMoveNetTest = function (index, dir) {
     renderCmsPanel();
 };
 
+window.cmsMoveNetTest = function (index, dir) {
+    window.cmsMoveLinear('netTestList', index, dir);
+};
+
+window.cmsDragStart = function (ev, group, index) {
+    const activeTag = document.activeElement && document.activeElement.tagName
+        ? document.activeElement.tagName.toUpperCase()
+        : '';
+    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') {
+        ev.preventDefault();
+        return;
+    }
+    cmsDraggingInfo = { group: group, index: Number(index) };
+    if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = 'move';
+        try { ev.dataTransfer.setData('text/plain', `${group}:${index}`); } catch (e) {}
+    }
+    if (ev.currentTarget && ev.currentTarget.classList) {
+        ev.currentTarget.classList.add('is-dragging');
+    }
+};
+
+window.cmsDragOver = function (ev) {
+    if (!cmsDraggingInfo) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+    if (ev.currentTarget && ev.currentTarget.classList) {
+        ev.currentTarget.classList.add('is-drag-over');
+    }
+};
+
+window.cmsDragLeave = function (ev) {
+    if (ev.currentTarget && ev.currentTarget.classList) {
+        ev.currentTarget.classList.remove('is-drag-over');
+    }
+};
+
+window.cmsDrop = function (ev, group, targetIndex) {
+    ev.preventDefault();
+    if (ev.currentTarget && ev.currentTarget.classList) {
+        ev.currentTarget.classList.remove('is-drag-over');
+    }
+    if (!cmsDraggingInfo || cmsDraggingInfo.group !== group) {
+        cmsDraggingInfo = null;
+        return;
+    }
+    const fromIdx = cmsDraggingInfo.index;
+    const toIdx = Number(targetIndex);
+    cmsDraggingInfo = null;
+    if (isNaN(fromIdx) || isNaN(toIdx) || fromIdx === toIdx) return;
+    const list = cmsState && cmsState[group];
+    if (!Array.isArray(list) || !list[fromIdx]) return;
+    cmsDirty = true;
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    renderCmsPanel();
+};
+
+window.cmsDragEnd = function (ev) {
+    cmsDraggingInfo = null;
+    if (ev && ev.currentTarget && ev.currentTarget.classList) {
+        ev.currentTarget.classList.remove('is-dragging', 'is-drag-over');
+    }
+    document.querySelectorAll('.cms-item.is-dragging, .cms-item.is-drag-over').forEach(el => {
+        el.classList.remove('is-dragging', 'is-drag-over');
+    });
+};
+
 function cmsSectionNetTest(sec) {
     const list = (cmsState && cmsState.netTestList) || [];
     const rows = list.map((c, i) => {
@@ -1829,8 +2237,9 @@ function cmsSectionNetTest(sec) {
         const qrMode = c.qrMode === 'image' ? 'image' : 'link';
         const { shortUrl, fullUrl } = normalizeNetTestUrlPair(c.url);
         return `
-        <div class="cms-item ${isVisible ? '' : 'is-hidden'}">
+        <div class="cms-item ${isVisible ? '' : 'is-hidden'}" draggable="true" ondragstart="cmsDragStart(event,'netTestList',${i})" ondragover="cmsDragOver(event)" ondragleave="cmsDragLeave(event)" ondrop="cmsDrop(event,'netTestList',${i})" ondragend="cmsDragEnd(event)">
             <div class="cms-item-head">
+                <span class="cms-drag-handle" title="按住上下拖拽排序">☰</span>
                 <span class="cms-badge ${qrMode === 'image' ? 'image' : 'wifi'}">${esc(c.name || '未命名检测站')}</span>
                 <span style="font-size:12px;color:var(--text-muted);font-family:Consolas,monospace;">${esc(shortUrl || '未填网址')} · ${qrMode === 'image' ? '🖼 上传图片' : '🔗 自动生码'}</span>
                 ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
@@ -1882,11 +2291,185 @@ function cmsSectionNetTest(sec) {
         ${renderSectionBlockConfig('quick', '「⚡ IP 二维码生成」区块')}
         ${renderSectionBlockConfig('batch', '「📋 填写 IP 报表」区块')}
         ${renderSectionBlockConfig('single', '「🔍 IP 提取与代理检测」区块')}
-        <div class="cms-tip">管理「⚡ IP 生成」页面最下方的「🌐 网络测试」卡片。支持选择「上传图片」或「输入链接自动生成」，并可单独控制每张卡片右上角「?」问号。</div>
+        <div class="cms-tip">管理「⚡ IP 生成」页面最下方的「🌐 网络测试」卡片。支持按住 <code>☰</code> 拖拽排序，支持选择「上传图片」或「输入链接自动生成」，并可单独控制每张卡片右上角「?」问号。</div>
         ${rows || '<div class="cms-tip">暂无检测网站卡片</div>'}
         <button type="button" class="cms-add" onclick="cmsAdd('netTestList')">➕ 新增检测网站卡片</button>`;
 
     return cmsWrapSection(sec, body, cmsVisibleStatBadge('netTestList'));
+}
+
+/* ---------------- 9. 📱 手机 App 下载（App Store） & 11. 🔒 隐藏专区 通用卡片行构建 ---------------- */
+
+function renderAppQrCmsRows(group, itemLabel) {
+    const list = (cmsState && cmsState[group]) || [];
+    return list.map((c, i) => {
+        const isVisible = c.visible !== false;
+        const qrMode = c.qrMode === 'image' ? 'image' : 'link';
+        const { shortUrl, fullUrl } = normalizeNetTestUrlPair(c.url);
+        const iconUrl = typeof window.getDefaultAppIcon === 'function'
+            ? window.getDefaultAppIcon(c.name, c.icon)
+            : String(c.icon || '').trim();
+        return `
+        <div class="cms-item ${isVisible ? '' : 'is-hidden'}" draggable="true" ondragstart="cmsDragStart(event,'${group}',${i})" ondragover="cmsDragOver(event)" ondragleave="cmsDragLeave(event)" ondrop="cmsDrop(event,'${group}',${i})" ondragend="cmsDragEnd(event)">
+            <div class="cms-item-head">
+                <span class="cms-drag-handle" title="按住上下拖拽排序">☰</span>
+                ${iconUrl ? `<img src="${esc(iconUrl)}" alt="" style="width:22px;height:22px;border-radius:6px;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">` : ''}
+                <span class="cms-badge ${qrMode === 'image' ? 'image' : 'wifi'}">${esc(c.name || ('未命名' + itemLabel))}</span>
+                <span style="font-size:12px;color:var(--text-muted);font-family:Consolas,monospace;">${esc(shortUrl ? (shortUrl.length > 38 ? shortUrl.slice(0, 38) + '…' : shortUrl) : '未填链接')} · ${qrMode === 'image' ? '🖼 上传图片' : '🔗 自动生码'}</span>
+                ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
+                <span class="cms-spacer"></span>
+                ${cmsRenderVisSwitch(group, i, c)}
+                <button type="button" class="cms-move" title="上移" onclick="cmsMoveLinear('${group}',${i},-1)">↑</button>
+                <button type="button" class="cms-move" title="下移" onclick="cmsMoveLinear('${group}',${i},1)">↓</button>
+            </div>
+            <div class="cms-grid">
+                <div class="cms-field"><label>${itemLabel}名称</label>
+                    <input type="text" placeholder="例如：Gmail / Shadowrocket" value="${esc(c.name || '')}" oninput="cmsSet('${group}',${i},'name',this.value)"></div>
+                <div class="cms-field"><label>二维码添加方式 (二选一)</label>
+                    <select onchange="cmsSetCardQrMode('${group}',${i},this.value)">
+                        <option value="link" ${qrMode === 'link' ? 'selected' : ''}>② 输入链接自动生成（二维码中心嵌图标）</option>
+                        <option value="image" ${qrMode === 'image' ? 'selected' : ''}>① 上传我自己的二维码图片</option>
+                    </select></div>
+                <div class="cms-field"><label>🔗 目标链接（App Store 链接或任意网址，扫码直接跳转）</label>
+                    <input type="text" placeholder="https://apps.apple.com/..." value="${esc(c.url || '')}" oninput="cmsSet('${group}',${i},'url',this.value)"></div>
+                ${qrMode === 'image' ? `
+                <div class="cms-field"><label>上传的二维码图片 URL (imgPath)</label>
+                    <input type="text" placeholder="images/xxx.jpg 或上传后的 Drive 链接" value="${esc(c.imgPath || '')}" oninput="cmsSet('${group}',${i},'imgPath',this.value)"></div>
+                ` : ''}
+                <div class="cms-field"><label>🎨 小图标 URL（留空则按名称自动匹配官方内置图标）</label>
+                    <input type="text" placeholder="留空自动使用内置高清图标，也可粘贴图片 URL 或上传" value="${esc(c.icon && !String(c.icon).startsWith('data:image/svg+xml') ? c.icon : '')}" oninput="cmsSet('${group}',${i},'icon',this.value)"></div>
+                <div class="cms-field" style="grid-column: 1 / -1;"><label>📝 介绍说明文字（展开大卡片时显示在二维码下方）</label>
+                    <input type="text" placeholder="输入该 App / 资源的简要说明" value="${esc(c.desc || '')}" oninput="cmsSet('${group}',${i},'desc',this.value)"></div>
+                ${renderCardHelpFieldSelect(group, i, c)}
+            </div>
+            <div class="cms-item-bar">
+                ${qrMode === 'image' ? `
+                    ${c.imgPath ? `<img class="cms-thumb" src="${esc(c.imgPath)}" alt="二维码预览" onerror="imgFallback(this)">` : ''}
+                    <label class="cms-file-btn">📤 上传二维码图片
+                        <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${i},'imgPath')">
+                    </label>
+                ` : `
+                    <div style="position:relative;width:44px;height:44px;background:#fff;padding:3px;border-radius:6px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;">
+                        <img id="cmsQrPreview_${group}_${i}" style="width:100%;height:100%;object-fit:contain;" alt="二维码预览">
+                        ${iconUrl ? `<img src="${esc(iconUrl)}" alt="" style="position:absolute;width:13px;height:13px;border-radius:3px;background:#fff;padding:1px;box-shadow:0 1px 3px rgba(0,0,0,0.3);">` : ''}
+                    </div>
+                    <span style="font-size:12px;color:var(--text-muted);">扫码跳转：<code id="cmsAppUrlCode_${group}_${i}">${esc(fullUrl || '—')}</code></span>
+                `}
+                <label class="cms-file-btn">🖼 上传自定义小图标
+                    <input type="file" accept="image/*" onchange="cmsUploadFile(this,'image','${group}',${i},'icon')">
+                </label>
+                ${renderCardHelpUploadBtn(group, i, c)}
+                <span class="cms-spacer"></span>
+                <button type="button" class="cms-del" onclick="cmsDel('${group}',${i})">🗑 删除</button>
+            </div>
+            ${renderCardHelpTextEditor(group, i, c)}
+        </div>`;
+    }).join('');
+}
+
+function cmsSectionAppStore(sec) {
+    const rows = renderAppQrCmsRows('appStoreList', 'App');
+    setTimeout(cmsRefreshAllLinkQrPreviews, 15);
+    const body = `
+        ${renderSectionBlockConfig('appStore', '「📱 手机 App 下载（App Store）」区块')}
+        <div class="cms-tip">
+            管理「📋 填写 IP 报表」下方的<strong>「📱 手机 App 下载（App Store）」</strong>区块：前台默认显示一排带小图标的按钮（不显示小二维码），鼠标悬停或点击时原地放大展开显示「① App 名字 ② 中心嵌有 App 图标的大二维码 ③ 介绍文字」。支持按住左侧 <code>☰</code> 拖拽排序或点 ↑↓ 调序。
+        </div>
+        ${rows || '<div class="cms-tip">暂无手机 App 条目</div>'}
+        <button type="button" class="cms-add" onclick="cmsAdd('appStoreList')">➕ 新增手机 App 下载项</button>
+    `;
+    return cmsWrapSection(sec, body, cmsVisibleStatBadge('appStoreList'));
+}
+
+/* ---------------- 10. 💻 电脑软件 ---------------- */
+
+function cmsSectionPcSoft(sec) {
+    const list = (cmsState && cmsState.pcSoftList) || [];
+    const rows = list.map((c, i) => {
+        const isVisible = c.visible !== false;
+        const { shortUrl, fullUrl } = normalizeNetTestUrlPair(c.url);
+        return `
+        <div class="cms-item ${isVisible ? '' : 'is-hidden'}" draggable="true" ondragstart="cmsDragStart(event,'pcSoftList',${i})" ondragover="cmsDragOver(event)" ondragleave="cmsDragLeave(event)" ondrop="cmsDrop(event,'pcSoftList',${i})" ondragend="cmsDragEnd(event)">
+            <div class="cms-item-head">
+                <span class="cms-drag-handle" title="按住上下拖拽排序">☰</span>
+                <span class="cms-badge wifi">${esc(c.name || '未命名软件')}</span>
+                <span style="font-size:12px;color:var(--text-muted);font-family:Consolas,monospace;">${esc(shortUrl ? (shortUrl.length > 44 ? shortUrl.slice(0, 44) + '…' : shortUrl) : '未填链接')}</span>
+                ${isVisible ? '' : '<span class="cms-hidden-pill">前台已隐藏</span>'}
+                <span class="cms-spacer"></span>
+                ${cmsRenderVisSwitch('pcSoftList', i, c)}
+                <button type="button" class="cms-move" title="上移" onclick="cmsMoveLinear('pcSoftList',${i},-1)">↑</button>
+                <button type="button" class="cms-move" title="下移" onclick="cmsMoveLinear('pcSoftList',${i},1)">↓</button>
+            </div>
+            <div class="cms-grid">
+                <div class="cms-field"><label>💻 软件名称</label>
+                    <input type="text" placeholder="例如：Clash Verge Rev" value="${esc(c.name || '')}" oninput="cmsSet('pcSoftList',${i},'name',this.value)"></div>
+                <div class="cms-field"><label>🔗 点击跳转下载链接（点击名字直接在新标签页打开）</label>
+                    <input type="text" placeholder="https://..." value="${esc(c.url || '')}" oninput="cmsSet('pcSoftList',${i},'url',this.value)"></div>
+                <div class="cms-field" style="grid-column: 1 / -1;"><label>📝 介绍说明文字（鼠标悬停放大展开时显示在名字下方）</label>
+                    <input type="text" placeholder="输入该电脑软件的用途或版本说明" value="${esc(c.desc || '')}" oninput="cmsSet('pcSoftList',${i},'desc',this.value)"></div>
+                ${renderCardHelpFieldSelect('pcSoftList', i, c)}
+            </div>
+            <div class="cms-item-bar">
+                <span style="font-size:12px;color:var(--text-muted);">点击直达：<code>${esc(fullUrl || '—')}</code></span>
+                ${renderCardHelpUploadBtn('pcSoftList', i, c)}
+                <span class="cms-spacer"></span>
+                <button type="button" class="cms-del" onclick="cmsDel('pcSoftList',${i})">🗑 删除</button>
+            </div>
+            ${renderCardHelpTextEditor('pcSoftList', i, c)}
+        </div>`;
+    }).join('');
+
+    const body = `
+        ${renderSectionBlockConfig('pcSoft', '「💻 电脑软件」区块')}
+        <div class="cms-tip">
+            管理「📋 填写 IP 报表」下方的<strong>「💻 电脑软件」</strong>区块：前台显示一排文字小方块（无二维码），点击名字直接在新标签页打开对应链接，鼠标悬停原地放大显示「① 软件名字 ② 介绍说明文字」。支持按住左侧 <code>☰</code> 拖拽排序或点 ↑↓ 调序。
+        </div>
+        ${rows || '<div class="cms-tip">暂无电脑软件条目</div>'}
+        <button type="button" class="cms-add" onclick="cmsAdd('pcSoftList')">➕ 新增电脑软件项</button>
+    `;
+    return cmsWrapSection(sec, body, cmsVisibleStatBadge('pcSoftList'));
+}
+
+/* ---------------- 11. 🔒 隐藏专区（默认完全不显示，后台开启总开关才出现） ---------------- */
+
+window.cmsToggleSecretZoneMaster = function (checked) {
+    if (!cmsState) cmsState = normalizeCmsState(clone(window.getSiteContent()));
+    cmsDirty = true;
+    cmsState.secretZoneEnabled = !!checked;
+    if (window.SiteContent) {
+        window.SiteContent.data = cmsState;
+        window.applySiteContent();
+    }
+    renderCmsPanel();
+};
+
+function cmsSectionSecretZone(sec) {
+    const enabled = Boolean(cmsState && cmsState.secretZoneEnabled);
+    const rows = renderAppQrCmsRows('secretZoneList', '隐藏项');
+    setTimeout(cmsRefreshAllLinkQrPreviews, 15);
+    const masterBadge = `<span class="cms-sec-stat" style="${enabled ? 'color:#34C759;font-weight:700;' : ''}">${enabled ? '🟢 前台已开启显示' : '🔒 前台默认隐藏中'} · 共 ${(cmsState.secretZoneList || []).length} 项</span>`;
+    const body = `
+        <div class="cms-subbox" style="margin-bottom:14px;border-color:${enabled ? 'rgba(52,199,89,0.55)' : 'rgba(230,162,60,0.45)'};background:${enabled ? 'rgba(52,199,89,0.06)' : 'rgba(230,162,60,0.05)'};">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <div style="font-size:14px;font-weight:700;color:var(--text-color);">🔒 【隐藏专区】前端总开关（控制整个区块是否在页面上出现）</div>
+                    <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;">默认关闭（前端完全不显示该区块）；只有在此处打开总开关后，前端「📋 填写 IP 报表」最下方才会出现本专区。</div>
+                </div>
+                <label class="cms-vis-switch ${enabled ? 'is-on' : 'is-off'}" style="transform:scale(1.08);transform-origin:right center;">
+                    <input type="checkbox" ${enabled ? 'checked' : ''} onchange="cmsToggleSecretZoneMaster(this.checked)">
+                    <span class="cms-vis-track"><span class="cms-vis-thumb"></span></span>
+                    <span class="cms-vis-label">${enabled ? '🔓 已在前端开启显示' : '🔒 前端完全隐藏（默认）'}</span>
+                </label>
+            </div>
+        </div>
+        ${renderSectionBlockConfig('secretZone', '「🔒 隐藏专区」区块')}
+        <div class="cms-tip">
+            结构与交互同「📱 手机 App 下载」：鼠标悬停或点击展开二维码与说明；支持「① 上传我自己的二维码图片」或「② 输入链接自动生成」，支持按住 <code>☰</code> 拖拽排序。
+        </div>
+        ${rows || '<div class="cms-tip">当前隐藏专区列表为空，点击下方「➕ 新增隐藏专区条目」即可添加。</div>'}
+        <button type="button" class="cms-add" onclick="cmsAdd('secretZoneList')">➕ 新增隐藏专区条目</button>
+    `;
+    return cmsWrapSection(sec, body, masterBadge);
 }
 
 /* ---------------- 交互函数 ---------------- */
@@ -1895,7 +2478,11 @@ window.cmsSet = function (group, index, key, value) {
     const item = (cmsState[group] || [])[index];
     if (!item) return;
     cmsDirty = true;
-    item[key] = value;
+    if ((group === 'appStoreList' || group === 'secretZoneList') && key === 'icon' && !String(value || '').trim()) {
+        item.icon = typeof window.getDefaultAppIcon === 'function' ? window.getDefaultAppIcon(item.name, '') : '';
+    } else {
+        item[key] = value;
+    }
 
     // 1. 基础网络卡片在自动生码模式下，名称/密码变更时同步刷新 wifiString 与预览
     if (group === 'baseWifiCards') {
@@ -1956,15 +2543,15 @@ window.cmsSet = function (group, index, key, value) {
         }
     }
 
-    // 4. 网络测试卡片修改网址时，实时重新生成后台预览二维码
-    if (group === 'netTestList' && key === 'url') {
+    // 4. 网络测试 / 手机 App / 隐藏专区卡片修改网址时，实时重新生成后台预览二维码
+    if ((group === 'netTestList' || group === 'appStoreList' || group === 'secretZoneList') && key === 'url') {
         const { fullUrl } = normalizeNetTestUrlPair(value);
-        const codeEl = document.getElementById('cmsNetUrlCode_' + index);
+        const codeEl = document.getElementById(group === 'netTestList' ? ('cmsNetUrlCode_' + index) : `cmsAppUrlCode_${group}_${index}`);
         if (codeEl) codeEl.textContent = fullUrl || '—';
-        const imgEl = document.getElementById('cmsNetQrPreview_' + index);
+        const imgEl = document.getElementById(group === 'netTestList' ? ('cmsNetQrPreview_' + index) : `cmsQrPreview_${group}_${index}`);
         if (imgEl && fullUrl && typeof waitForQRCode === 'function') {
             waitForQRCode(() => {
-                QRCode.toDataURL(fullUrl, { width: 120, margin: 1 }, (err, dataUrl) => {
+                QRCode.toDataURL(fullUrl, { width: 120, margin: 1, errorCorrectionLevel: 'H' }, (err, dataUrl) => {
                     if (!err && dataUrl) imgEl.src = dataUrl;
                 });
             });
@@ -2073,6 +2660,45 @@ window.cmsAdd = function (group) {
             url: 'ipinfo.io',
             imgPath: '',
             desc: '检测代理 IP 纯净度与匿名性',
+            visible: true,
+            helpType: '',
+            helpImg: '',
+            helpText: ''
+        });
+    } else if (group === 'appStoreList') {
+        cmsState[group].push({
+            id: 'app_' + Date.now(),
+            name: '新 App',
+            icon: typeof window.getDefaultAppIcon === 'function' ? window.getDefaultAppIcon('新 App', '') : '',
+            qrMode: 'link',
+            url: 'https://apps.apple.com/',
+            imgPath: '',
+            desc: '使用 iPhone 相机扫码直达 App Store 下载页',
+            visible: true,
+            helpType: '',
+            helpImg: '',
+            helpText: ''
+        });
+    } else if (group === 'pcSoftList') {
+        cmsState[group].push({
+            id: 'pc_' + Date.now(),
+            name: '新电脑软件',
+            url: 'https://',
+            desc: '点击直接在新标签页打开下载页',
+            visible: true,
+            helpType: '',
+            helpImg: '',
+            helpText: ''
+        });
+    } else if (group === 'secretZoneList') {
+        cmsState[group].push({
+            id: 'secret_' + Date.now(),
+            name: '新隐藏项',
+            icon: typeof window.getDefaultAppIcon === 'function' ? window.getDefaultAppIcon('新隐藏项', '') : '',
+            qrMode: 'link',
+            url: 'https://',
+            imgPath: '',
+            desc: '鼠标悬停或点击展开查看二维码与说明',
             visible: true,
             helpType: '',
             helpImg: '',

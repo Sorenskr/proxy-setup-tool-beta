@@ -156,17 +156,157 @@
     window.normalizeNetTestCards = normalizeNetTestCards;
     window.netTestList = normalizeNetTestCards(DEFAULT_NET_TEST_LIST);
 
+    /* ---------------- 内置高清官方风格 App 图标库（SVG Data URI，零延迟且永不裂图） ---------------- */
+    function svgToDataUri(svgStr) {
+        return 'data:image/svg+xml;utf8,' + encodeURIComponent(svgStr.trim());
+    }
+
+    const BUILTIN_APP_ICONS = {
+        gmail: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="#ffffff"/><path d="M22 38v48c0 3.3 2.7 6 6 6h10V54.5L60 71l22-16.5V92h10c3.3 0 6-2.7 6-6V38c0-7.5-8.6-11.8-14.6-7.3L60 48.2 36.6 30.7C30.6 26.2 22 30.5 22 38z" fill="#EA4335"/><path d="M22 38v48c0 3.3 2.7 6 6 6h10V54.5L22 42.5V38z" fill="#4285F4"/><path d="M98 38v48c0 3.3-2.7 6-6 6H82V54.5l16-12V38z" fill="#34A853"/><path d="M82 54.5V33l1.4-2.3C89.4 26.2 98 30.5 98 38v4.5l-16 12z" fill="#FBBC05"/><path d="M38 54.5V33l22 16.5L82 33v21.5L60 71 38 54.5z" fill="#EA4335"/></svg>`),
+        wetype: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2CE080"/><stop offset="100%" stop-color="#07C160"/></linearGradient></defs><rect width="120" height="120" rx="26" fill="url(#wg)"/><rect x="20" y="28" width="80" height="54" rx="12" fill="#ffffff"/><rect x="29" y="38" width="11" height="9" rx="2.5" fill="#07C160"/><rect x="45" y="38" width="11" height="9" rx="2.5" fill="#07C160"/><rect x="61" y="38" width="11" height="9" rx="2.5" fill="#07C160"/><rect x="77" y="38" width="14" height="9" rx="2.5" fill="#07C160"/><rect x="29" y="52" width="14" height="9" rx="2.5" fill="#07C160"/><rect x="48" y="52" width="11" height="9" rx="2.5" fill="#07C160"/><rect x="64" y="52" width="11" height="9" rx="2.5" fill="#07C160"/><rect x="80" y="52" width="11" height="9" rx="2.5" fill="#07C160"/><rect x="38" y="66" width="44" height="8" rx="4" fill="#07C160"/><path d="M48 82l12 13 12-13z" fill="#ffffff"/></svg>`),
+        x: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="#000000"/><path d="M74.5 28h12.6L59.6 59.4 92 92H66.6L46.7 69.2 24 92H11.4l29.4-33.6L10 28h26l18 20.8L74.5 28zm-4.4 57.5h7L32 34.4h-7.5l45.6 51.1z" fill="#ffffff"/></svg>`),
+        egern: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="eg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#38BDF8"/><stop offset="50%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1E1B4B"/></linearGradient></defs><rect width="120" height="120" rx="26" fill="url(#eg)"/><path d="M60 18L92 34v26c0 22.8-13.7 36.8-32 43-18.3-6.2-32-20.2-32-43V34l32-16z" fill="rgba(255,255,255,0.16)" stroke="#ffffff" stroke-width="5" stroke-linejoin="round"/><path d="M44 46h32M44 60h24M44 74h32" stroke="#ffffff" stroke-width="7" stroke-linecap="round"/></svg>`),
+        deltachat: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="dc" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4158D0"/><stop offset="100%" stop-color="#1B74E4"/></linearGradient></defs><rect width="120" height="120" rx="26" fill="url(#dc)"/><path d="M60 22c-22.1 0-40 15.8-40 35.3 0 10.6 5.3 20.1 13.8 26.6L28 98l17.9-7.6c4.4 1.4 9.1 2.2 14.1 2.2 22.1 0 40-15.8 40-35.3S82.1 22 60 22z" fill="#ffffff"/><path d="M60 36L40 72h40L60 36zm0 13l10.5 17h-21L60 49z" fill="#1B74E4"/></svg>`),
+        threads: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="#0A0A0A"/><path d="M63.2 58.2c-2.6-1.3-5.6-1.9-9-1.8-7.6.2-13.3 4.8-13.1 11.4.2 6.3 5.5 10.4 12.6 10.2 8.2-.2 12.6-5.6 12.9-14.8.1-1.7.1-3.4-.4-5zm8.2-4.2c1.2 3.1 1.7 6.8 1.5 10.9-.5 13.4-8.4 21.8-20.8 22.1-11.5.3-20.4-6.9-20.7-17.8-.3-11.3 8.1-19.3 20.6-19.6 4.1-.1 7.9.6 11.2 2-.6-6.9-4.7-10.8-12.1-10.6-4.7.1-8.8 1.8-11.7 4.9l-5.7-5.5c4.3-4.6 10.4-7.2 17.5-7.4 12.4-.3 20.4 6.5 21.2 18.4l1.1-.6c6.1 3.7 9.8 9.6 9.8 16.9 0 14.8-12.6 25.3-30.6 25.3-20.8 0-34.7-14.2-34.7-35.5S41.9 22 62.9 22c16.8 0 28.8 9 32.3 23.4l-7.9 2.2C84.6 36.5 75.5 30 62.9 30c-16.3 0-26.6 11-26.6 27.5s10.3 27.5 26.6 27.5c13.3 0 22.5-7.4 22.5-17.3 0-5.1-2.8-9.5-7.6-12.3l-6.4-1.4z" fill="#ffffff"/></svg>`),
+        tiktok: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="#000000"/><path d="M81 44.5c-6.8 0-12.4-5.5-12.4-12.4V26H56.5v47.2c0 6.1-5 11.1-11.1 11.1s-11.1-5-11.1-11.1 5-11.1 11.1-11.1c1.2 0 2.3.2 3.3.6V50.2c-1.1-.1-2.2-.2-3.3-.2-12.8 0-23.2 10.4-23.2 23.2s10.4 23.2 23.2 23.2 23.2-10.4 23.2-23.2V50.8c4.4 3.2 9.8 5.1 15.6 5.1V44.5H81z" fill="#25F4EE" transform="translate(-3,-2)"/><path d="M81 44.5c-6.8 0-12.4-5.5-12.4-12.4V26H56.5v47.2c0 6.1-5 11.1-11.1 11.1s-11.1-5-11.1-11.1 5-11.1 11.1-11.1c1.2 0 2.3.2 3.3.6V50.2c-1.1-.1-2.2-.2-3.3-.2-12.8 0-23.2 10.4-23.2 23.2s10.4 23.2 23.2 23.2 23.2-10.4 23.2-23.2V50.8c4.4 3.2 9.8 5.1 15.6 5.1V44.5H81z" fill="#FE2C55" transform="translate(3,2)"/><path d="M81 44.5c-6.8 0-12.4-5.5-12.4-12.4V26H56.5v47.2c0 6.1-5 11.1-11.1 11.1s-11.1-5-11.1-11.1 5-11.1 11.1-11.1c1.2 0 2.3.2 3.3.6V50.2c-1.1-.1-2.2-.2-3.3-.2-12.8 0-23.2 10.4-23.2 23.2s10.4 23.2 23.2 23.2 23.2-10.4 23.2-23.2V50.8c4.4 3.2 9.8 5.1 15.6 5.1V44.5H81z" fill="#ffffff"/></svg>`),
+        facebook: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="#1877F2"/><path d="M77.5 76.5l3.1-20.2H61.2V43.2c0-5.5 2.7-10.9 11.4-10.9h8.8V15.1s-8-1.4-15.6-1.4c-15.9 0-26.3 9.7-26.3 27.1v15.5H21.8v20.2h17.7V120h21.7V76.5h16.3z" fill="#ffffff"/></svg>`),
+        instagram: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><radialGradient id="ig" cx="30%" cy="107%" r="150%"><stop offset="0%" stop-color="#FDF497"/><stop offset="5%" stop-color="#FDF497"/><stop offset="45%" stop-color="#FD5949"/><stop offset="60%" stop-color="#D6249F"/><stop offset="90%" stop-color="#285AEB"/></radialGradient></defs><rect width="120" height="120" rx="26" fill="url(#ig)"/><rect x="23" y="23" width="74" height="74" rx="20" fill="none" stroke="#ffffff" stroke-width="7"/><circle cx="60" cy="60" r="17" fill="none" stroke="#ffffff" stroke-width="7"/><circle cx="81" cy="39" r="4.5" fill="#ffffff"/></svg>`),
+        shadowrocket: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="sr" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3B82F6"/><stop offset="100%" stop-color="#1D4ED8"/></linearGradient></defs><rect width="120" height="120" rx="26" fill="url(#sr)"/><path d="M84 36c-14 2-28 10-37 21l-13 2-8 10 15 4 9 9 4 15 10-8 2-13c11-9 19-23 21-37 0-2-1-3-3-3z" fill="#ffffff"/><circle cx="65" cy="55" r="6" fill="#1D4ED8"/><path d="M34 78c-5 5-8 14-8 14s9-3 14-8c3-3 3-6 0-6s-3-3-6 0z" fill="#FBBF24"/></svg>`),
+        defaultApp: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="da" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#007AFF"/><stop offset="100%" stop-color="#5856D6"/></linearGradient></defs><rect width="120" height="120" rx="26" fill="url(#da)"/><path d="M60 28v44m0 0l-16-16m16 16l16-16M34 86h52" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`)
+    };
+
+    window.getDefaultAppIcon = function (name, customIcon) {
+        const custom = String(customIcon || '').trim();
+        if (custom) return custom;
+        const n = String(name || '').toLowerCase();
+        if (n.includes('gmail')) return BUILTIN_APP_ICONS.gmail;
+        if (n.includes('微信') || n.includes('wetype')) return BUILTIN_APP_ICONS.wetype;
+        if (n === 'x' || n.includes('twitter')) return BUILTIN_APP_ICONS.x;
+        if (n.includes('egern')) return BUILTIN_APP_ICONS.egern;
+        if (n.includes('delta')) return BUILTIN_APP_ICONS.deltachat;
+        if (n.includes('threads')) return BUILTIN_APP_ICONS.threads;
+        if (n.includes('tiktok')) return BUILTIN_APP_ICONS.tiktok;
+        if (n.includes('facebook') || n === 'fb') return BUILTIN_APP_ICONS.facebook;
+        if (n.includes('instagram') || n === 'ins') return BUILTIN_APP_ICONS.instagram;
+        if (n.includes('shadowrocket') || n.includes('小火箭')) return BUILTIN_APP_ICONS.shadowrocket;
+        return BUILTIN_APP_ICONS.defaultApp;
+    };
+
+    /* ---------------- 区块一：📱 手机 App 下载（App Store）默认数据 ---------------- */
+    const DEFAULT_APP_STORE_LIST = [
+        { id: 'app_gmail',        name: 'Gmail',        icon: BUILTIN_APP_ICONS.gmail,        qrMode: 'link', url: 'https://apps.apple.com/us/app/gmail-email-by-google/id422689480',                           imgPath: '', desc: 'Google 官方邮箱客户端，支持多账号管理与实时邮件通知', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_wetype',       name: '微信输入法',   icon: BUILTIN_APP_ICONS.wetype,       qrMode: 'link', url: 'https://apps.apple.com/us/app/%E5%BE%AE%E4%BF%A1%E8%BE%93%E5%85%A5%E6%B3%95/id1618175312', imgPath: '', desc: '腾讯官方出品输入法，支持跨设备剪贴板同步与智能词库', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_x',            name: 'X',            icon: BUILTIN_APP_ICONS.x,            qrMode: 'link', url: 'https://apps.apple.com/us/app/x/id333903271',                                               imgPath: '', desc: '原 Twitter 官方客户端，全球实时资讯与跨境社媒运营必备', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_egern',        name: 'Egern',        icon: BUILTIN_APP_ICONS.egern,        qrMode: 'link', url: 'https://apps.apple.com/us/app/egern/id1616105820',                                          imgPath: '', desc: 'iOS 高性能网络代理客户端，支持 Hysteria2 / SOCKS5 扫码一键添加', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_deltachat',    name: 'Delta Chat',   icon: BUILTIN_APP_ICONS.deltachat,    qrMode: 'link', url: 'https://apps.apple.com/us/app/delta-chat/id1459523234?l=zh-Hant-TW',                        imgPath: '', desc: '基于邮箱协议的端到端加密聊天工具，安全稳定无需手机号', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_threads',      name: 'Threads',      icon: BUILTIN_APP_ICONS.threads,      qrMode: 'link', url: 'https://apps.apple.com/us/app/threads/id6446901002',                                        imgPath: '', desc: 'Meta 旗下文字社交平台，与 Instagram 账号一键互通', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_tiktok',       name: 'TikTok',       icon: BUILTIN_APP_ICONS.tiktok,       qrMode: 'link', url: 'https://apps.apple.com/us/app/tiktok-videos-shop-live/id835599320',                         imgPath: '', desc: '海外版抖音短视频与直播商城（建议代理纯净度≥90%后打开）', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_facebook',     name: 'Facebook',     icon: BUILTIN_APP_ICONS.facebook,     qrMode: 'link', url: 'https://apps.apple.com/us/app/facebook/id284882215',                                        imgPath: '', desc: 'Meta 核心社交平台，支持公共主页、广告投放与社群运营', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_instagram',    name: 'Instagram',    icon: BUILTIN_APP_ICONS.instagram,    qrMode: 'link', url: 'https://apps.apple.com/us/app/instagram/id389801252',                                       imgPath: '', desc: '图片与 Reels 短视频社交平台，品牌视觉与私域引流核心阵地', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_shadowrocket', name: 'Shadowrocket', icon: BUILTIN_APP_ICONS.shadowrocket, qrMode: 'link', url: 'https://apps.apple.com/us/app/shadowrocket/id932747118?l=zh-Hant-TW',                       imgPath: '', desc: 'iOS 经典小火箭代理工具，支持多协议节点扫码导入与分流', visible: true, helpType: '', helpImg: '', helpText: '' }
+    ];
+
+    function normalizeAppStoreCards(list) {
+        if (!Array.isArray(list)) return [];
+        return list.map((c, idx) => {
+            const o = Object.assign({}, c);
+            const help = normalizeHelpFields(o);
+            const name = String(o.name || '').trim();
+            const qrMode = o.qrMode === 'image' ? 'image' : 'link';
+            return {
+                id: String(o.id || ('app_' + (idx + 1))).trim(),
+                name: name,
+                icon: window.getDefaultAppIcon(name, o.icon),
+                qrMode: qrMode,
+                url: String(o.url || '').trim(),
+                imgPath: String(o.imgPath || '').trim(),
+                desc: String(o.desc || '').trim(),
+                visible: o.visible !== false,
+                helpType: help.helpType,
+                helpImg: help.helpImg,
+                helpText: help.helpText
+            };
+        });
+    }
+    window.normalizeAppStoreCards = normalizeAppStoreCards;
+    window.appStoreList = normalizeAppStoreCards(DEFAULT_APP_STORE_LIST);
+
+    /* ---------------- 区块二：💻 电脑软件 默认数据 ---------------- */
+    const DEFAULT_PC_SOFT_LIST = [
+        { id: 'pc_clash',      name: 'Clash Verge Rev', url: 'https://github.com/clash-verge-rev/clash-verge-rev/releases', desc: '桌面端主流代理分流客户端，内置 Clash.Meta 内核，支持订阅与TUN模式', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_bitbrowser', name: 'BitBrowser',      url: 'https://www.bitbrowser.cn/download',                          desc: '比特指纹浏览器，支持多账号独立防关联环境隔离与团队协同', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_chrome',     name: 'Google Chrome',   url: 'https://www.google.com/chrome/',                              desc: 'Google 官方网页浏览器，跨境业务与扩展插件标准运行环境', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_capcut',     name: '剪映',            url: 'https://www.capcut.cn/',                                      desc: '全功能视频剪辑工具，支持智能字幕识别、AI配音与短视频素材库', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_potplayer',  name: 'PotPlayer',       url: 'https://potplayer.tv/?lang=zh_CN',                            desc: 'Windows 高性能全格式多媒体播放器，硬件加速解码、无广告', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_honeyview',  name: 'Honeyview',       url: 'https://honeyview.net/',                                      desc: '极速轻量级图片查看器，支持多种图片格式与压缩包免解压预览', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_icaros',     name: 'Icaros',          url: 'https://github.com/Xanashi/Icaros/releases',                  desc: 'Windows 资源管理器视频缩略图补全工具，支持各类格式封面预览', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_everything', name: 'Everything',      url: 'https://www.voidtools.com/zh-cn/downloads/',                  desc: '毫秒级本地文件搜索神器，输入关键词瞬间定位全盘文件与素材', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_sogou',      name: '搜狗输入法',      url: 'https://shurufa.sogou.com/',                                  desc: '中文智能拼音输入法，支持丰富细胞词库与快捷短语同步', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_dingtalk',   name: '钉钉',            url: 'https://www.dingtalk.com/',                                   desc: '团队协同办公与即时通讯平台，支持文档协作、音视频会议与考勤', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_deltachat',  name: 'Delta Chat',      url: 'https://delta.chat/zh_CN/download',                           desc: '电脑端加密通讯客户端，支持与手机端扫码同步多端加密消息', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_i4',         name: 'i4',              url: 'https://i4.cn/',                                              desc: '爱思助手电脑版，iOS 设备验机、素材导入导出与刷机备份工具', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_yuque',      name: '语雀文档',        url: 'https://www.yuque.com/u37186489/tgrg5b/hbeqd8mhfr2f6p2t',     desc: '团队业务知识库与标准SOP操作文档中心，点击直达查阅', visible: true, helpType: '', helpImg: '', helpText: '' }
+    ];
+
+    function normalizePcSoftCards(list) {
+        if (!Array.isArray(list)) return [];
+        return list.map((c, idx) => {
+            const o = Object.assign({}, c);
+            const help = normalizeHelpFields(o);
+            return {
+                id: String(o.id || ('pc_' + (idx + 1))).trim(),
+                name: String(o.name || '').trim(),
+                url: String(o.url || '').trim(),
+                desc: String(o.desc || '').trim(),
+                visible: o.visible !== false,
+                helpType: help.helpType,
+                helpImg: help.helpImg,
+                helpText: help.helpText
+            };
+        });
+    }
+    window.normalizePcSoftCards = normalizePcSoftCards;
+    window.pcSoftList = normalizePcSoftCards(DEFAULT_PC_SOFT_LIST);
+
+    /* ---------------- 区块三：🔒 隐藏专区 归一化（初始为空，默认总开关关闭） ---------------- */
+    function normalizeSecretZoneCards(list) {
+        if (!Array.isArray(list)) return [];
+        return list.map((c, idx) => {
+            const o = Object.assign({}, c);
+            const help = normalizeHelpFields(o);
+            const name = String(o.name || '').trim();
+            const qrMode = o.qrMode === 'image' ? 'image' : 'link';
+            return {
+                id: String(o.id || ('secret_' + (idx + 1))).trim(),
+                name: name,
+                icon: String(o.icon || '').trim() || window.getDefaultAppIcon(name, ''),
+                qrMode: qrMode,
+                url: String(o.url || '').trim(),
+                imgPath: String(o.imgPath || '').trim(),
+                desc: String(o.desc || '').trim(),
+                visible: o.visible !== false,
+                helpType: help.helpType,
+                helpImg: help.helpImg,
+                helpText: help.helpText
+            };
+        });
+    }
+    window.normalizeSecretZoneCards = normalizeSecretZoneCards;
+    window.secretZoneList = [];
+
     const DEFAULT_SECTION_BLOCKS = {
         wifi: {
             title: '📶 代理 & WiFi',
             tip: '💡 点击基础网络卡片可一键下发一键配置',
-            helpType: 'image',
-            helpImg: 'images/@Ads tutorial.jpg',
-            helpText: '# 📶 代理 & WiFi 使用说明\n\n💡 点击基础网络卡片可一键下发一键配置'
+            helpEnabled: true,
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# 📶 代理 & WiFi 专区说明\n\n1. **基础网络卡片**：点击卡片可弹出对应 WiFi 二维码并复制密码（卡片右上角小问号为单卡独立教程）。\n2. **前置代理二维码**：使用 iPhone **Egern** 或 Android **v2rayNG** 扫码一键添加前置代理。\n3. **公司 WiFi 二维码**：使用手机系统相机扫码即可一键连接办公网。'
         },
         softRouter: {
             title: '软路由分流通道',
             tip: '',
+            helpEnabled: false,
             helpType: '',
             helpImg: '',
             helpText: '# 软路由分流通道说明\n\n点击对应线路按钮可弹出软路由连接二维码。'
@@ -174,6 +314,7 @@
         proxy: {
             title: '前置代理二维码（扫码一键添加）',
             tip: '',
+            helpEnabled: true,
             helpType: 'text',
             helpImg: '',
             helpText: '# 前置代理二维码使用说明\n\n- 使用 iPhone **Egern** 或 Android **v2rayNG** 扫描下方前置代理二维码即可一键导入。\n- 🟢 绿点：连通优质（<1.5s）\n- 🟡 黄点：可用但较慢（1.5~3s）\n- 🔴 红点：当前线路不可用'
@@ -181,6 +322,7 @@
         company: {
             title: '🏢 公司 WiFi 二维码',
             tip: '',
+            helpEnabled: true,
             helpType: 'text',
             helpImg: '',
             helpText: '# 🏢 公司 WiFi 二维码说明\n\n打开手机系统相机或微信扫一扫，对准对应办公区的二维码即可一键连接公司 WiFi（点击卡片可放大）。'
@@ -188,6 +330,7 @@
         quick: {
             title: '⚡ IP 二维码生成',
             tip: '',
+            helpEnabled: true,
             helpType: 'text',
             helpImg: '',
             helpText: '# ⚡ IP 二维码生成说明\n\n1. 填写代理名称前缀与手机盘点编码。\n2. 粘贴 SOCKS5 节点信息（支持空格、中文冒号、换行自动清洗）。\n3. 点击生成按钮即可在右侧生成 **Egern (iOS)** 或 **v2rayNG (Android)** 专属二维码。'
@@ -195,6 +338,7 @@
         netTest: {
             title: '🌐 网络测试',
             tip: '依次点击查看 IP 是否为获取的代理 IP 地址，建议纯净度≥90% 再打开社媒 App',
+            helpEnabled: true,
             helpType: 'text',
             helpImg: '',
             helpText: '# 🌐 网络测试说明\n\n依次点击或手机扫码打开下方检测网站，确认当前设备的出口 IP 已变为目标代理 IP：\n\n- **DNSLeakTest**：检测 DNS 是否泄漏\n- **Whoer**：检查伪装度评分及 WebRTC/时区一致性\n- **Ping0**：检测 IP 纯净度与风险值\n- **IPinfo**：核对 IP 地理位置、ASN 与运营商\n\n:::success 建议标准\n建议纯净度/伪装度 ≥ 90% 后再打开社媒 App。\n:::'
@@ -202,13 +346,39 @@
         batch: {
             title: '📋 填写 IP 报表',
             tip: '',
+            helpEnabled: false,
             helpType: '',
             helpImg: '',
             helpText: '# 📋 填写 IP 报表说明\n\n批量粘贴节点后点击「⚡ 生成并并发测绘」，系统将自动清洗格式并查询国家/州省，支持一键复制直接粘贴到 Excel。'
         },
+        appStore: {
+            title: '📱 手机 App 下载（App Store）',
+            tip: '💡 鼠标悬停或点击小图标原地展开大二维码，使用 iPhone 相机扫码直达美区/港区 App Store 下载页',
+            helpEnabled: false,
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# 📱 手机 App 下载说明\n\n1. 鼠标悬停或点击对应 App 图标即可在原地展开高清二维码。\n2. 使用 iPhone 系统相机扫描二维码，可直接跳转至 App Store 下载对应应用（需登录海外 Apple ID）。'
+        },
+        pcSoft: {
+            title: '💻 电脑软件',
+            tip: '💡 鼠标悬停查看软件用途说明，点击名称直接在新标签页打开官方下载页',
+            helpEnabled: false,
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# 💻 电脑软件下载说明\n\n- **悬停名称**：原地展开查看该软件的功能说明。\n- **点击名称**：直接在新标签页打开官网或 GitHub Releases 下载页。'
+        },
+        secretZone: {
+            title: '🔒 隐藏专区',
+            tip: '',
+            helpEnabled: false,
+            helpType: 'text',
+            helpImg: '',
+            helpText: '# 🔒 隐藏专区说明\n\n鼠标悬停或点击图标即可展开专属二维码与说明。'
+        },
         single: {
             title: '🔍 IP 提取与代理检测',
             tip: '',
+            helpEnabled: false,
             helpType: '',
             helpImg: '',
             helpText: '# 🔍 IP 提取与代理检测说明\n\n粘贴 Egern 链接或异常格式的 IP 文本，一键还原明文并检测代理连通性与地区。'
@@ -221,14 +391,36 @@
         const src = (rawBlocks && typeof rawBlocks === 'object') ? rawBlocks : {};
         Object.keys(DEFAULT_SECTION_BLOCKS).forEach(k => {
             const def = DEFAULT_SECTION_BLOCKS[k];
-            const b = (src[k] && typeof src[k] === 'object') ? src[k] : {};
-            const helpType = (b.helpType === 'image' || b.helpType === 'text' || b.helpType === '')
+            const b = Object.assign({}, (src[k] && typeof src[k] === 'object') ? src[k] : {});
+            // 若 wifi 主区块仍为旧版自动继承的 @Ads 教程图，则自动升级为独立的专区文字说明，与 @Ads 卡片问号彻底解耦
+            if (k === 'wifi' && b.helpType === 'image' && b.helpImg === 'images/@Ads tutorial.jpg') {
+                b.helpType = 'text';
+                b.helpImg = '';
+                if (!b.helpText || b.helpText.indexOf('点击基础网络卡片可一键下发一键配置') >= 0) {
+                    b.helpText = def.helpText;
+                }
+            }
+            let helpType = (b.helpType === 'image' || b.helpType === 'text' || b.helpType === '')
                 ? b.helpType
                 : def.helpType;
+            let helpEnabled;
+            if (typeof b.helpEnabled === 'boolean') {
+                helpEnabled = b.helpEnabled;
+            } else if (b.helpType === '') {
+                helpEnabled = false;
+            } else if (b.helpType === 'image' || b.helpType === 'text') {
+                helpEnabled = true;
+            } else {
+                helpEnabled = !!def.helpEnabled;
+            }
+            if (helpEnabled && !helpType) {
+                helpType = String(b.helpImg || def.helpImg || '').trim() ? 'image' : 'text';
+            }
             out[k] = {
                 title: typeof b.title === 'string' ? b.title : def.title,
                 tip: typeof b.tip === 'string' ? b.tip : def.tip,
-                helpType: helpType,
+                helpEnabled: helpEnabled,
+                helpType: helpEnabled ? helpType : '',
                 helpImg: typeof b.helpImg === 'string' ? b.helpImg : def.helpImg,
                 helpText: typeof b.helpText === 'string' ? b.helpText : def.helpText
             };
@@ -267,6 +459,10 @@
             proxyList: normalizeProxyCards(typeof proxyList !== 'undefined' ? proxyList : []),
             companyWifiList: normalizeCompanyWifiCards(typeof companyWifiList !== 'undefined' ? companyWifiList : []),
             netTestList: normalizeNetTestCards(DEFAULT_NET_TEST_LIST),
+            appStoreList: normalizeAppStoreCards(DEFAULT_APP_STORE_LIST),
+            pcSoftList: normalizePcSoftCards(DEFAULT_PC_SOFT_LIST),
+            secretZoneList: [],
+            secretZoneEnabled: false,
             music: (typeof musicFiles !== 'undefined' ? musicFiles : []).map(n => ({
                 name: String(n).replace(/\.[^/.]+$/, ''),
                 url: 'music/' + n
@@ -293,6 +489,10 @@
         if (Array.isArray(remote.companyWifiList)) out.companyWifiList = normalizeCompanyWifiCards(remote.companyWifiList);
         if (Array.isArray(remote.proxyList)) out.proxyList = normalizeProxyCards(remote.proxyList);
         if (Array.isArray(remote.netTestList)) out.netTestList = normalizeNetTestCards(remote.netTestList);
+        if (Array.isArray(remote.appStoreList)) out.appStoreList = normalizeAppStoreCards(remote.appStoreList);
+        if (Array.isArray(remote.pcSoftList)) out.pcSoftList = normalizePcSoftCards(remote.pcSoftList);
+        if (Array.isArray(remote.secretZoneList)) out.secretZoneList = normalizeSecretZoneCards(remote.secretZoneList);
+        if (typeof remote.secretZoneEnabled === 'boolean') out.secretZoneEnabled = remote.secretZoneEnabled;
         if (Array.isArray(remote.music)) out.music = remote.music;
         ['wifiTitle', 'wifiTip', 'netTestTip'].forEach(k => {
             if (typeof remote[k] === 'string') out[k] = remote[k];
@@ -504,6 +704,19 @@
             d.netTestList = normalizeNetTestCards(d.netTestList);
             window.netTestList = d.netTestList;
         }
+        if (Array.isArray(d.appStoreList)) {
+            d.appStoreList = normalizeAppStoreCards(d.appStoreList);
+            window.appStoreList = d.appStoreList;
+        }
+        if (Array.isArray(d.pcSoftList)) {
+            d.pcSoftList = normalizePcSoftCards(d.pcSoftList);
+            window.pcSoftList = d.pcSoftList;
+        }
+        if (Array.isArray(d.secretZoneList)) {
+            d.secretZoneList = normalizeSecretZoneCards(d.secretZoneList);
+            window.secretZoneList = d.secretZoneList;
+        }
+        d.secretZoneEnabled = !!d.secretZoneEnabled;
         d.sectionBlocks = normalizeSectionBlocks(d.sectionBlocks, d);
         d.wifiTitle = d.sectionBlocks.wifi.title;
         d.wifiTip = d.sectionBlocks.wifi.tip;
@@ -524,6 +737,9 @@
             quick:      { titleId: 'quickSectionTitle',      tipId: 'quickSectionTip',      btnId: 'secHelpBtn-quick' },
             netTest:    { titleId: 'netTestSectionTitle',    tipId: 'netTestTipText',       btnId: 'secHelpBtn-netTest' },
             batch:      { titleId: 'batchSectionTitle',      tipId: 'batchSectionTip',      btnId: 'secHelpBtn-batch' },
+            appStore:   { titleId: 'appStoreSectionTitle',   tipId: 'appStoreSectionTip',   btnId: 'secHelpBtn-appStore' },
+            pcSoft:     { titleId: 'pcSoftSectionTitle',     tipId: 'pcSoftSectionTip',     btnId: 'secHelpBtn-pcSoft' },
+            secretZone: { titleId: 'secretZoneSectionTitle', tipId: 'secretZoneSectionTip', btnId: 'secHelpBtn-secretZone' },
             single:     { titleId: 'singleSectionTitle',     tipId: 'singleSectionTip',     btnId: 'secHelpBtn-single' }
         };
         Object.keys(secMap).forEach(secKey => {
@@ -540,8 +756,11 @@
             }
             const btnEl = document.getElementById(cfg.btnId);
             if (btnEl) {
-                const showHelp = (block.helpType === 'image' && String(block.helpImg || '').trim())
-                    || (block.helpType === 'text' && String(block.helpText || '').trim());
+                const isEnabled = block.helpEnabled !== false;
+                const showHelp = isEnabled && (
+                    (block.helpType === 'image' && String(block.helpImg || '').trim())
+                    || (block.helpType === 'text' && String(block.helpText || '').trim())
+                );
                 btnEl.style.display = showHelp ? 'inline-flex' : 'none';
             }
         });
@@ -564,6 +783,7 @@
 
         if (typeof renderStaticCards === 'function') renderStaticCards();
         if (typeof window.renderNetTestCards === 'function') window.renderNetTestCards();
+        if (typeof window.renderBatchExtraSections === 'function') window.renderBatchExtraSections();
         if (typeof applyWifiLayoutConfig === 'function') applyWifiLayoutConfig();
         if (typeof window.createParticles === 'function') window.createParticles();
         if (typeof loadTrack === 'function') loadTrack(0);

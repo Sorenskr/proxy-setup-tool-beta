@@ -286,6 +286,36 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- 区块一：📱 手机 App 下载（App Store） -->
+                <div class="batch-extra-section" id="appStoreSection">
+                    <div class="wifi-section-header">
+                        <h3 class="wifi-section-title mb-0" id="appStoreSectionTitle">📱 手机 App 下载（App Store）</h3>
+                        <button type="button" class="wifi-help-btn" id="secHelpBtn-appStore" onclick="openSectionHelp('appStore')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                    </div>
+                    <p class="wifi-section-tip" id="appStoreSectionTip" style="display:none;"></p>
+                    <div class="app-dl-grid" id="appStoreGrid"></div>
+                </div>
+
+                <!-- 区块二：💻 电脑软件 -->
+                <div class="batch-extra-section" id="pcSoftSection">
+                    <div class="wifi-section-header">
+                        <h3 class="wifi-section-title mb-0" id="pcSoftSectionTitle">💻 电脑软件</h3>
+                        <button type="button" class="wifi-help-btn" id="secHelpBtn-pcSoft" onclick="openSectionHelp('pcSoft')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                    </div>
+                    <p class="wifi-section-tip" id="pcSoftSectionTip" style="display:none;"></p>
+                    <div class="pc-soft-grid" id="pcSoftGrid"></div>
+                </div>
+
+                <!-- 区块三：🔒 隐藏专区（默认完全不显示，后台开启总开关后才出现） -->
+                <div class="batch-extra-section" id="secretZoneSection" style="display:none;">
+                    <div class="wifi-section-header">
+                        <h3 class="wifi-section-title mb-0" id="secretZoneSectionTitle">🔒 隐藏专区</h3>
+                        <button type="button" class="wifi-help-btn" id="secHelpBtn-secretZone" onclick="openSectionHelp('secretZone')" title="查看本区块说明" aria-label="查看本区块说明" style="display:none;">?</button>
+                    </div>
+                    <p class="wifi-section-tip" id="secretZoneSectionTip" style="display:none;"></p>
+                    <div class="app-dl-grid" id="secretZoneGrid"></div>
+                </div>
             </section>
 
             <!-- 模块 4: 使用教程 -->

@@ -698,6 +698,9 @@ function injectAdminControls() {
     `).join('');
 
     const isCtrlCollapsed = window.__adminControlCollapsed !== false;
+    const curSiteContent = typeof window.getSiteContent === 'function' ? window.getSiteContent() : null;
+    const wifiBlockCfg = (curSiteContent && curSiteContent.sectionBlocks && curSiteContent.sectionBlocks.wifi) || { helpEnabled: true, helpType: 'image' };
+    const showWifiHelpBtn = (wifiBlockCfg.helpEnabled !== false && (wifiBlockCfg.helpType === 'image' || wifiBlockCfg.helpType === 'text')) ? 'checked' : '';
 
     container.innerHTML = `
         <div id="adminControlBox" class="cms-card cms-section ${isCtrlCollapsed ? 'is-collapsed' : ''}" style="border-color:rgba(230,162,60,0.55); background:rgba(230,162,60,0.05);">
@@ -721,6 +724,12 @@ function injectAdminControls() {
                         <label class="admin-radio-label" style="font-weight:bold; color:#007AFF;">
                             <input type="checkbox" id="cfgShowSoftRouterInput" ${showSoftRouter}> 开启【软路由分流通道】展示 (未勾选则完全折叠隐藏)
                         </label>
+                        <div style="display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; padding:4px 10px; border-radius:8px; background:rgba(0,122,255,0.08); border:1px solid rgba(0,122,255,0.25);">
+                            <label class="admin-radio-label" style="font-weight:bold; color:#007AFF; margin:0;">
+                                <input type="checkbox" id="cfgShowWifiHelpBtnInput" ${showWifiHelpBtn} onchange="if(typeof cmsToggleSectionHelp==='function') cmsToggleSectionHelp('wifi', this.checked)"> ❓ 显示【📶 代理 &amp; WiFi】右上角问号 (?) 按钮
+                            </label>
+                            <button type="button" class="btn-ghost" style="padding:3px 10px; font-size:12px;" onclick="if(typeof cmsJumpToSection==='function') cmsJumpToSection(8)">⚙️ 编辑问号点击弹出内容 / 管理全部问号</button>
+                        </div>
                         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                             <span style="font-size:13px; font-weight:bold; color:var(--text-muted);">基础网络卡片展示 (勾选即显示，自动向左对齐补位)：</span>
                             ${wifiCheckboxesHtml}
