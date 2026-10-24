@@ -2228,8 +2228,8 @@ window.cmsUploadMusicAudio = function (input, index) {
 
     const fname = String(file.name || '').trim();
     if (/\.(ncm|kwm|kgm|qmc\w*|mflac|mgg)$/i.test(fname)) {
-        alert('⚠️ 网易云客户端下载的 .ncm 等加密格式无法在网页直接播放！\n\n请先使用「格式工厂」或在线「ncm 转 mp3 工具」将其转换为 .mp3 或 .m4a 格式后再上传。');
-        showToast('⚠️ .ncm 加密格式不能直接上传，请先转成 .mp3 后再上传');
+        alert('⚠️ 网易云客户端下载的 .ncm 等加密格式无法在网页直接播放！\n\n请先打开在线转换工具 https://www.ncm2mp3.com/ （或使用格式工厂）将其转换为 .mp3 格式后再上传。');
+        showToast('⚠️ .ncm 加密格式不能直接上传，请先用 ncm2mp3.com 转成 .mp3');
         return;
     }
     if (!/\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(fname) && !/^audio\//i.test(file.type || '')) {
@@ -2388,6 +2388,7 @@ function cmsSectionMusic(sec) {
                 <ul style="margin:3px 0 6px 32px; color:var(--text-muted); font-size:12.5px;">
                     <li>在曲目的「音频来源方式」下拉框切换到<strong>「② 上传音频文件」</strong>，自己上传 <code>mp3</code> / <code>m4a</code> 音频文件到后台，前端直接播你上传的文件，不再依赖外链。</li>
                     <li><strong style="color:#ff3b30;">⚠️ 加密格式特别提醒：</strong>网易云客户端下载下来的音乐经常是加密的 <strong><code>.ncm</code></strong> 格式，<strong>不能直接上传</strong>，需要先用格式转换工具（如<strong>格式工厂</strong>、或在线 <strong>ncm 转 mp3 工具</strong>）把它转成 <strong><code>.mp3</code></strong> 后再上传。</li>
+                    <li><strong>🛠️ 推荐在线免安装转换工具：</strong>直接点击打开 👉 <a href="https://www.ncm2mp3.com/" target="_blank" rel="noopener noreferrer" style="color:#007AFF;font-weight:700;text-decoration:underline;">https://www.ncm2mp3.com/</a>（把网易云下载的 <code>.ncm</code> 文件拖进去，浏览器本地一键秒转成 <code>.mp3</code> 并下载，无需安装任何软件）。</li>
                     <li><strong>支持格式与体积上限：</strong>支持 <strong><code>.mp3</code>、<code>.m4a</code></strong> 格式，单个音频文件大小上限 <strong>≤ 8MB</strong>。</li>
                 </ul>
                 <div><strong>3. 二选一与封面图设置：</strong>每首歌都可以自由选择<strong>「填外链」</strong>或<strong>「上传音频文件」</strong>二选一；如果音乐链接抓不到封面，点击曲目下方的<strong>「🖼 上传封面图」</strong>即可上传你自己的本地封面图片（随时可改、可换）。</div>
