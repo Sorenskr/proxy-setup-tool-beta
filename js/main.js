@@ -500,12 +500,15 @@ async function ensureCloudAudioBlobUrl(rawUrl, showLoadingToast) {
 
     // 2. 若是 Google Drive 云端音频文件，通过 Apps Script ?action=media&id=FILE_ID 拉取（并发复用同一个 Promise）
     const driveId = extractDriveAudioId(cleanUrl) || extractDriveAudioId(raw);
-    if (driveId && typeof REPORT_API_URL !== 'undefined' && String(REPORT_API_URL).trim()) {
+    const mediaBaseUrl = (typeof window.getCmsApiUrl === 'function' && window.getCmsApiUrl(''))
+        ? window.getCmsApiUrl('')
+        : (typeof REPORT_API_URL !== 'undefined' ? String(REPORT_API_URL).trim() : '');
+    if (driveId && mediaBaseUrl) {
         if (!pendingDriveAudioPromises[driveId]) {
             if (showLoadingToast && typeof showToast === 'function') {
                 showToast('⏳ 正在从云端同步音乐音频流...');
             }
-            const mediaApi = `${String(REPORT_API_URL).trim()}?action=media&id=${encodeURIComponent(driveId)}`;
+            const mediaApi = `${mediaBaseUrl}?action=media&id=${encodeURIComponent(driveId)}`;
             pendingDriveAudioPromises[driveId] = fetch(mediaApi, { cache: 'no-store' })
                 .then(r => (r.ok ? r.json() : null))
                 .then(async (j) => {
@@ -652,11 +655,15 @@ function loadTrack(index, preserveIfSamePlaying) {
     clearMusicWidgetError();
 
     const isDriveAudio = Boolean(extractDriveAudioId(normalizedUrl) || extractDriveAudioId(rawUrl));
+    const isLocalAudioKey = /^local-audio:\/\//i.test(normalizedUrl);
+    const backupLinkUrl = (isLocalAudioKey && track.linkUrl && !/^local-audio:\/\//i.test(String(track.linkUrl).trim()))
+        ? normalizeMusicTrackUrl(track.linkUrl)
+        : '';
 
     // 优先检查本地 IndexedDB 是否已缓存该音频 Blob，若为 Google Drive 云端上传音频则在后台预拉取字节流
     ensureCloudAudioBlobUrl(rawUrl, false).then(blobUrl => {
         if (currentTrackIndex !== index) return;
-        const targetSrc = blobUrl || (!isDriveAudio ? normalizedUrl : '');
+        const targetSrc = blobUrl || (!isDriveAudio && !isLocalAudioKey ? normalizedUrl : backupLinkUrl);
         if (targetSrc) {
             if (audioEl.src !== targetSrc) audioEl.src = targetSrc;
         } else if (!isDriveAudio) {
@@ -784,16 +791,22 @@ function playAudio() {
     }
     const normalizedUrl = normalizeMusicTrackUrl(rawUrl);
     const isDriveAudio = Boolean(extractDriveAudioId(normalizedUrl) || extractDriveAudioId(rawUrl));
+    const isLocalAudioKey = /^local-audio:\/\//i.test(normalizedUrl);
+    const backupLinkUrl = (isLocalAudioKey && track.linkUrl && !/^local-audio:\/\//i.test(String(track.linkUrl).trim()))
+        ? normalizeMusicTrackUrl(track.linkUrl)
+        : '';
 
     audioEl.dataset.userTriggered = '1';
     ensureCloudAudioBlobUrl(rawUrl, isDriveAudio).then(blobUrl => {
         if (blobUrl) {
             if (audioEl.src !== blobUrl) audioEl.src = blobUrl;
-        } else if (!audioEl.getAttribute('src') && normalizedUrl && !isDriveAudio && !/^local-audio:\/\//i.test(normalizedUrl)) {
+        } else if (!audioEl.getAttribute('src') && normalizedUrl && !isDriveAudio && !isLocalAudioKey) {
             audioEl.src = normalizedUrl;
+        } else if (!audioEl.getAttribute('src') && backupLinkUrl) {
+            audioEl.src = backupLinkUrl;
         }
         if (!audioEl.getAttribute('src')) {
-            tryFallbackAudioAndPlay(rawUrl);
+            tryFallbackAudioAndPlay(backupLinkUrl || rawUrl);
             return;
         }
         const p = audioEl.play();
@@ -809,7 +822,7 @@ function playAudio() {
                     if (typeof showToast === 'function') showToast('💡 请点击音乐图标开启播放');
                     return;
                 }
-                tryFallbackAudioAndPlay(rawUrl);
+                tryFallbackAudioAndPlay(backupLinkUrl || rawUrl);
             });
         }
     });

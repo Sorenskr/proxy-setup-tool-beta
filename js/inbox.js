@@ -2,6 +2,12 @@
   const ROOM = 'MatrixNode';
   const PUBLIC_SITE_URL = 'https://sorenskr.github.io/proxy-setup-tool-beta/';
   const API = (typeof REPORT_API_URL !== 'undefined' && REPORT_API_URL) ? REPORT_API_URL.trim() : '';
+  function getInboxApi() {
+    if (typeof window.getCmsApiUrl === 'function' && window.getCmsApiUrl('')) {
+      return window.getCmsApiUrl('');
+    }
+    return API;
+  }
   const NET_ERR_MSG = '请开启代理后重试（网络不可达，请确认已挂代理后重试）';
   const OCR_ERR_MSG = '识别失败，请换清晰图或手动输入';
 
@@ -151,7 +157,8 @@
 
   /** 发送文字、图片或图文组合到云端 INBOX_SUBMIT 接口（后台照常写入 Google 表格 MN_Inbox 备份） */
   async function sendInboxPayload(text, file, roomOverride) {
-    if (!API) throw new Error('云端接口地址未配置');
+    const targetApi = getInboxApi();
+    if (!targetApi) throw new Error('云端接口地址未配置');
     const cleanText = (text || '').trim();
     const body = {
       action: 'INBOX_SUBMIT',
@@ -169,7 +176,7 @@
     } else {
       body.type = 'text';
     }
-    const r = await fetchWithTimeout(API, {
+    const r = await fetchWithTimeout(targetApi, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body)
@@ -698,8 +705,9 @@
         foundAdmin.ocrText = cleanedText;
         renderAdminInboxTable();
       }
-      if (API) {
-        fetchWithTimeout(API, {
+      const targetApi = getInboxApi();
+      if (targetApi) {
+        fetchWithTimeout(targetApi, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'INBOX_OCR', room: ROOM, id: id, ocrText: cleanedText })
@@ -716,10 +724,11 @@
 
   /** 仅供审计大屏拉取 MN_Inbox 全量备份列表，不影响右下角当前会话对话框 */
   async function fetchAdminInbox(showErrToast) {
-    if (!API) return;
+    const targetApi = getInboxApi();
+    if (!targetApi) return;
     try {
       const r = await fetchWithTimeout(
-        API + '?action=inbox&room=' + encodeURIComponent(ROOM) + '&t=' + Date.now(),
+        targetApi + '?action=inbox&room=' + encodeURIComponent(ROOM) + '&t=' + Date.now(),
         { cache: 'no-store' },
         18000
       );

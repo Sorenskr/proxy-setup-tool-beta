@@ -23,17 +23,34 @@
         ].forEach(k => localStorage.removeItem(k));
     } catch (e) {}
 
+    // 当 REPORT_API_URL 指向尚未重新部署 V2 Code.gs 的老版流水接口（不返回 content 字段）时，
+    // 自动切换至已部署 V2 完整后台的云端端点读写 SITE_CONTENT / 媒体流 / 探测状态 / 收件箱
+    const CMS_CLOUD_FALLBACK_URL = 'https://script.google.com/macros/s/AKfycbx-1u4836W99nFQxVkhbDKdc9uBnZEBWtI88m6PwhoTiAtkM4QdPFXmu8YMr_2SdYhvDg/exec';
+
+    function getPrimaryApiBase() {
+        return (typeof REPORT_API_URL !== 'undefined' && REPORT_API_URL) ? String(REPORT_API_URL).trim() : '';
+    }
+
+    function getCmsApiBase() {
+        if (window.__activeCmsApiUrl) return window.__activeCmsApiUrl;
+        return getPrimaryApiBase() || CMS_CLOUD_FALLBACK_URL;
+    }
+
+    window.getCmsApiUrl = function (extra) {
+        const base = getCmsApiBase();
+        if (!base) return '';
+        return base + (extra || '');
+    };
+
     window.hasCloudApi = function () {
-        try { return typeof REPORT_API_URL !== 'undefined' && !!String(REPORT_API_URL).trim(); }
+        try { return !!getCmsApiBase(); }
         catch (e) { return false; }
     };
 
     window.SiteContent = { loaded: false, data: null, remote: false, fetchFailed: false };
 
     function apiUrl(extra) {
-        const base = (typeof REPORT_API_URL !== 'undefined' ? REPORT_API_URL : '').trim();
-        if (!base) return '';
-        return base + (extra || '');
+        return window.getCmsApiUrl(extra);
     }
 
     /** 统一判定卡片是否可见（兼容布尔 false、字符串 "false"、数字 0 及 hidden 标记） */
@@ -460,26 +477,24 @@
      * 仅供后台 CMS「载入初始模板」按钮手动调用的预设卡片模板（前端渲染绝不自动回退到此模板）
      */
     const TEMPLATE_BASE_WIFI_CARDS = [
-        { id: 'ads',     name: '@Ads',          pwd: 'a123456789', img: 'images/@Ads.png',          qrMode: 'image', wifiString: '', visible: true, helpType: 'image', helpImg: 'images/@Ads tutorial.jpg', helpText: '' },
-        { id: 'meitu',   name: 'meitu',         pwd: 'a123456789', img: 'images/meitu.jpg',         qrMode: 'image', wifiString: '', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'zone',    name: 'Zone',          pwd: 'a123456789', img: 'images/Zone.jpg',          qrMode: 'image', wifiString: '', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'usa',     name: 'USA-TikTok-5G', pwd: '88888888',   img: 'images/USA-TikTok-5G.jpg', qrMode: 'image', wifiString: '', visible: true, helpType: '', helpImg: '', helpText: '' }
+        { id: 'ads',    name: '@Ads',        pwd: 'ads@@2026123',  img: '',                 qrMode: 'link',  wifiString: 'WIFI:T:WPA;S:@Ads;P:ads@@2026123;;', tag: '',                    large: false, danger: false, visible: true, helpType: 'image', helpImg: 'images/@Ads tutorial.jpg', helpText: '' },
+        { id: 'jdtest', name: 'JD-TEST',     pwd: 'JDTester2025!', img: 'images/wifi5.jpg', qrMode: 'image', wifiString: '',                                    tag: '仅限注册 iCloud 使用', large: true,  danger: true,  visible: true, helpType: '',      helpImg: '',                        helpText: '' },
+        { id: 'advert', name: 'Advert',      pwd: 'Jingda2025',    img: 'images/wifi3.jpg', qrMode: 'image', wifiString: '',                                    tag: '',                    large: false, danger: false, visible: true, helpType: '',      helpImg: '',                        helpText: '' },
+        { id: 'jdin',   name: 'JD-IN',       pwd: 'Jingda2025',    img: 'images/wifi4.jpg', qrMode: 'image', wifiString: '',                                    tag: '',                    large: false, danger: false, visible: true, helpType: '',      helpImg: '',                        helpText: '' },
+        { id: 'worker', name: '@WorkerSaas', pwd: '202212888',     img: 'images/wifi2.jpg', qrMode: 'image', wifiString: '',                                    tag: '',                    large: false, danger: false, visible: true, helpType: '',      helpImg: '',                        helpText: '' }
     ];
     const TEMPLATE_PROXY_LIST = [
-        { id: 'proxy_1', name: '1.15.125.134',   qrMode: 'image', imgPath: 'images/1.15.125.134.png',   proxyUrl: '', visible: true },
-        { id: 'proxy_2', name: '43.138.27.229',  qrMode: 'image', imgPath: 'images/43.138.27.229.png',  proxyUrl: '', visible: true },
-        { id: 'proxy_3', name: '129.204.147.62', qrMode: 'image', imgPath: 'images/129.204.147.62.jpg', proxyUrl: '', visible: true },
-        { id: 'proxy_4', name: '175.24.132.155', qrMode: 'image', imgPath: 'images/175.24.132.155.jpg', proxyUrl: '', visible: true },
-        { id: 'proxy_5', name: '118.89.184.56',  qrMode: 'image', imgPath: 'images/118.89.184.56.jpg',  proxyUrl: '', visible: true },
-        { id: 'proxy_6', name: '43.163.112.142', qrMode: 'image', imgPath: 'images/43.163.112.142.jpg', proxyUrl: '', visible: true },
-        { id: 'proxy_7', name: '119.29.131.71',  qrMode: 'image', imgPath: 'images/119.29.131.71.png',  proxyUrl: '', visible: true },
-        { id: 'proxy_8', name: '43.136.47.17',   qrMode: 'image', imgPath: 'images/43.136.47.17.jpg',   proxyUrl: '', visible: true }
+        { id: 'proxy_1', name: '李俊鑫组 美区前置',   qrMode: 'image', imgPath: 'images/proxy1.jpg', proxyUrl: '', visible: true },
+        { id: 'proxy_2', name: '宋磊马宇航组 美区前置', qrMode: 'image', imgPath: 'images/proxy2.jpg', proxyUrl: '', visible: true },
+        { id: 'proxy_3', name: '慕杰组 美区前置',     qrMode: 'image', imgPath: 'images/proxy3.jpg', proxyUrl: '', visible: true },
+        { id: 'proxy_4', name: '台湾前置代理',        qrMode: 'image', imgPath: 'images/proxy4.jpg', proxyUrl: '', visible: true }
     ];
     const TEMPLATE_COMPANY_WIFI_LIST = [
-        { id: 'company_1', name: '1302-5G',     qrMode: 'image', imgPath: 'images/1302-5G.jpg',     ssid: '1302-5G',     pwd: '', qrText: '', visible: true },
-        { id: 'company_2', name: '1603-5G',     qrMode: 'image', imgPath: 'images/1603-5G.jpg',     ssid: '1603-5G',     pwd: '', qrText: '', visible: true },
-        { id: 'company_3', name: '1603-2-5G',   qrMode: 'image', imgPath: 'images/1603-2-5G.jpg',   ssid: '1603-2-5G',   pwd: '', qrText: '', visible: true },
-        { id: 'company_4', name: 'MCN-1304-5G', qrMode: 'image', imgPath: 'images/MCN-1304-5G.jpg', ssid: 'MCN-1304-5G', pwd: '', qrText: '', visible: true }
+        { id: 'company_1', name: 'IU',                   qrMode: 'image', imgPath: 'images/wifi1.jpg', ssid: 'IU',          pwd: '',            qrText: '', visible: true },
+        { id: 'company_2', name: '@WorkerSaas',          qrMode: 'image', imgPath: 'images/wifi2.jpg', ssid: '@WorkerSaas', pwd: '202212888',   qrText: '', visible: true },
+        { id: 'company_3', name: 'Advert  Jingda2025',   qrMode: 'image', imgPath: 'images/wifi3.jpg', ssid: 'Advert',      pwd: 'Jingda2025',  qrText: '', visible: true },
+        { id: 'company_4', name: 'JD-IN Jingda2025',     qrMode: 'image', imgPath: 'images/wifi4.jpg', ssid: 'JD-IN',       pwd: 'Jingda2025',  qrText: '', visible: true },
+        { id: 'company_5', name: 'JD-TEST JDTester2025!',qrMode: 'image', imgPath: 'images/wifi5.jpg', ssid: 'JD-TEST',     pwd: 'JDTester2025!', qrText: '', visible: true }
     ];
     const TEMPLATE_NET_TEST_LIST = [
         { id: 'net_dnsleak', name: 'DNSLeakTest', qrMode: 'link', url: 'dnsleaktest.com', imgPath: '', desc: '测 IP DNS 泄漏', visible: true, helpType: '', helpImg: '', helpText: '' },
@@ -1011,10 +1026,27 @@
         }
 
         const attemptFetch = (retryCount) => {
-            const url = apiUrl('?action=content&_t=' + Date.now());
+            const curBase = getCmsApiBase();
+            const url = curBase + '?action=content&_t=' + Date.now();
             return fetch(url, { cache: 'no-store' })
                 .then(r => r.json())
                 .then(j => {
+                    // 若当前 REPORT_API_URL 返回了 config（如老版 V1 接口），顺带同步展示配置到内存
+                    if (j && j.config && typeof j.config === 'object') {
+                        window.SiteConfig = window.SiteConfig || {};
+                        ['cfgDataMode', 'cfgTotalMode', 'cfgTotalOffset', 'cfgTotalFixed', 'cfgOnlineFixed', 'cfgShowSoftRouter', 'cfgShowWifiCards'].forEach(k => {
+                            const v = j.config[k];
+                            if (v !== undefined && v !== null && v !== '') window.SiteConfig[k] = String(v);
+                        });
+                    }
+
+                    // 检测当前端点是否是不支持 action=content 的老版 V1 接口（无 content 字段且无 ok 标记）
+                    const isLegacyV1Response = j && typeof j === 'object' && !('content' in j) && j.ok === undefined;
+                    if (isLegacyV1Response && CMS_CLOUD_FALLBACK_URL && curBase !== CMS_CLOUD_FALLBACK_URL) {
+                        window.__activeCmsApiUrl = CMS_CLOUD_FALLBACK_URL;
+                        return attemptFetch(0);
+                    }
+
                     const remote = (j && j.ok && j.content && typeof j.content === 'object') ? j.content : null;
                     if (remote && Object.keys(remote).length > 0) {
                         window.SiteContent.data = buildRemoteContent(remote);
@@ -1031,6 +1063,10 @@
                 .catch(() => {
                     if (retryCount < 1) {
                         return new Promise(res => setTimeout(res, 600)).then(() => attemptFetch(retryCount + 1));
+                    }
+                    if (CMS_CLOUD_FALLBACK_URL && getCmsApiBase() !== CMS_CLOUD_FALLBACK_URL) {
+                        window.__activeCmsApiUrl = CMS_CLOUD_FALLBACK_URL;
+                        return attemptFetch(0);
                     }
                     // fetch 失败时严禁回退到硬编码旧数据或 localStorage 缓存
                     if (!window.SiteContent.remote) {
@@ -1049,6 +1085,18 @@
     window.postToApi = function (payload, readResponse) {
         const url = apiUrl('');
         if (!url) return Promise.reject(new Error('未配置 REPORT_API_URL'));
+        const primaryUrl = getPrimaryApiBase();
+        // 当正式版主接口为老版 V1 且执行 UPDATE_CONFIG 时，同步向主接口下发一份兼容格式更新老表「全局配置」
+        if (payload && payload.action === 'UPDATE_CONFIG' && primaryUrl && primaryUrl !== url) {
+            const legacyPayload = Object.assign({ dataType: 'UPDATE_CONFIG' }, payload);
+            fetch(primaryUrl, {
+                method: 'POST',
+                mode: 'no-cors',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(legacyPayload)
+            }).catch(() => {});
+        }
         return fetch(url, {
             method: 'POST',
             mode: readResponse ? 'cors' : 'no-cors',
