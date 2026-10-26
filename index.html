@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <script>
         if (/[?&]inboxpage=1\b/.test(location.search)) {
             window.__IS_INBOX_MOBILE_PAGE__ = true;
@@ -21,7 +24,7 @@
     <link rel="preload" as="image" href="images/logo.png" fetchpriority="high">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=20261026">
 
     <!-- 第三方依赖：defer 保证按序执行且不阻塞解析，integrity 防止 CDN 内容被篡改 -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"
@@ -604,13 +607,13 @@
         </div>
     </div>
 
-    <script src="js/markdown.js" defer></script>
-    <script src="js/content.js" defer></script>
-    <script src="guide.js" defer></script>
-    <script src="js/canvas-engine.js" defer></script>
-    <script src="js/main.js" defer></script>
-    <script src="js/admin-cms.js" defer></script>
+    <script src="js/markdown.js?v=20261026" defer></script>
+    <script src="js/content.js?v=20261026" defer></script>
+    <script src="guide.js?v=20261026" defer></script>
+    <script src="js/canvas-engine.js?v=20261026" defer></script>
+    <script src="js/main.js?v=20261026" defer></script>
+    <script src="js/admin-cms.js?v=20261026" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
-    <script src="js/inbox.js" defer></script>
+    <script src="js/inbox.js?v=20261026" defer></script>
 </body>
 </html>

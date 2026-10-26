@@ -1,35 +1,18 @@
-// ================== 1. 数据资产静态映射区 ==================
-let proxyList = [
-    { id: 'proxy_1', name: '李俊鑫组 美区前置', qrMode: 'image', imgPath: 'images/proxy1.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' },
-    { id: 'proxy_2', name: '宋磊马宇航组 美区前置', qrMode: 'image', imgPath: 'images/proxy2.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' },
-    { id: 'proxy_3', name: '慕杰组 美区前置', qrMode: 'image', imgPath: 'images/proxy3.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' },
-    { id: 'proxy_4', name: '台湾前置代理', qrMode: 'image', imgPath: 'images/proxy4.jpg', proxyUrl: '', visible: true, firstOnlineAt: '2026/10/22 10:00:00', statusOverride: 'auto', manualOverride: false, manualDownAt: '', manualNote: '' }
-];
+// ================== 1. 数据资产运行时容器（严格以后台 SITE_CONTENT 为准，禁止硬编码兜底） ==================
+let proxyList = [];
+let companyWifiList = [];
+let baseWifiCards = [];
 
-let companyWifiList = [
-    { name: 'IU', imgPath: 'images/wifi1.jpg' },
-    { name: '@WorkerSaas', imgPath: 'images/wifi2.jpg' },
-    { name: 'Advert  Jingda2025', imgPath: 'images/wifi3.jpg' },
-    { name: 'JD-IN Jingda2025', imgPath: 'images/wifi4.jpg' },
-    { name: 'JD-TEST JDTester2025!', imgPath: 'images/wifi5.jpg' }
-];
-
-// 基础网络卡片全集（@Ads 采用标准 WiFi 协议原生生成二维码）
-let baseWifiCards = [
-    { 
-        id: 'ads', 
-        name: '@Ads', 
-        pwd: 'ads@@2026123', 
-        wifiString: 'WIFI:T:WPA;S:@Ads;P:ads@@2026123;;',
-        tag: '', 
-        large: false, 
-        danger: false 
-    },
-    { id: 'jdtest', name: 'JD-TEST', pwd: 'JDTester2025!', img: 'images/wifi5.jpg', tag: '仅限注册 iCloud 使用', large: true, danger: true },
-    { id: 'advert', name: 'Advert', pwd: 'Jingda2025', img: 'images/wifi3.jpg', tag: '', large: false, danger: false },
-    { id: 'jdin', name: 'JD-IN', pwd: 'Jingda2025', img: 'images/wifi4.jpg', tag: '', large: false, danger: false },
-    { id: 'worker', name: '@WorkerSaas', pwd: '202212888', img: 'images/wifi2.jpg', tag: '', large: false, danger: false }
-];
+window.SiteConfig = window.SiteConfig || {
+    cfgDataMode: 'real',
+    cfgTotalMode: 'offset',
+    cfgTotalOffset: '1240',
+    cfgTotalFixed: '8888',
+    cfgOnlineFixed: '25',
+    cfgShowSoftRouter: 'false',
+    cfgShowWifiCards: '',
+    probeIntervalMin: 15
+};
 
 const REPORT_API_URL = "https://script.google.com/macros/s/AKfycbx-1u4836W99nFQxVkhbDKdc9uBnZEBWtI88m6PwhoTiAtkM4QdPFXmu8YMr_2SdYhvDg/exec".trim();
 
@@ -107,9 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.onkeydown = (e) => { if(e.key === 'Escape') { closeWifiModal(); closeFeedbackModal(); closeWifiGuideModal(); closeCardHelp(); } }
 
     applyTheme();
-    renderStaticCards(); 
-    applyWifiLayoutConfig(); 
-    if (typeof window.renderNetTestCards === 'function') window.renderNetTestCards();
+    // 卡片与配置严格等待 content.js 从后台拉取最新数据后再渲染，不在本地预先渲染硬编码旧卡片
     
     if (typeof window.createParticles === 'function') { window.createParticles(); window.animate(); }
     
@@ -149,58 +130,50 @@ function renderStaticCards() {
     companyWifiList.forEach(item => { if(companyGrid) companyGrid.innerHTML += `<div class="wifi-card" onclick="openModalWithImage('${item.name}', '${item.imgPath}')"><div class="wifi-qr-box"><img src="${item.imgPath}" class="qr-img" onerror="imgFallback(this)"></div><div class="wifi-card-title">${item.name}</div></div>`; });
 }
 
-// 动态渲染基础网络卡片与软路由显隐 (带强制兜底显示 @Ads 机制)
+// 动态渲染基础网络卡片与软路由显隐（严格以后台 SITE_CONTENT 的 visible 为准，绝不回退硬编码或 localStorage）
 function applyWifiLayoutConfig() {
+    const cfg = window.SiteConfig || {};
     const softRouterEl = document.getElementById('softRouterSection');
-    const showSoftRouter = (localStorage.getItem('cfgShowSoftRouter') || 'false') === 'true';
-    if(softRouterEl) { softRouterEl.style.display = showSoftRouter ? 'block' : 'none'; }
+    const showSoftRouter = String(cfg.cfgShowSoftRouter || 'false') === 'true';
+    if (softRouterEl) { softRouterEl.style.display = showSoftRouter ? 'block' : 'none'; }
     const softRouterKeyEl = document.getElementById('softRouterKey');
-    if(softRouterKeyEl) softRouterKeyEl.textContent = showSoftRouter ? SOFT_ROUTER_KEY : '';
+    if (softRouterKeyEl) softRouterKeyEl.textContent = showSoftRouter ? SOFT_ROUTER_KEY : '';
 
     const container = document.getElementById('baseWifiContainer');
     if (!container) return;
     container.innerHTML = '';
 
-    let showCardsStr = localStorage.getItem('cfgShowWifiCards');
-    // 强制保底防空：如果是空值、null、或无效字符串，默认强制恢复为 'ads'
-    if (!showCardsStr || showCardsStr === 'undefined' || showCardsStr === 'null' || showCardsStr.trim() === '') {
-        showCardsStr = 'ads';
-        localStorage.setItem('cfgShowWifiCards', 'ads');
-    }
+    const contentData = (window.SiteContent && window.SiteContent.remote && window.SiteContent.data) ? window.SiteContent.data : null;
+    const list = (contentData && Array.isArray(contentData.baseWifiCards)) ? contentData.baseWifiCards : [];
 
-    let showCardsArr = showCardsStr.split(',').filter(Boolean);
-    if (showCardsArr.length === 0) {
-        showCardsArr = ['ads'];
-    }
+    list.forEach((card, idx) => {
+        const isVis = typeof window.isCardVisible === 'function' ? window.isCardVisible(card) : (card && card.visible !== false);
+        if (!isVis) return;
+        const cardEl = document.createElement('div');
+        cardEl.className = `compact-card ${card.danger ? 'danger-card' : ''} ${card.fx && card.fx !== 'default' ? 'fx-' + card.fx : ''}`;
+        
+        cardEl.onclick = () => {
+            const useLink = card.qrMode === 'link' || (card.qrMode !== 'image' && card.wifiString);
+            if (useLink) {
+                const targetWifiStr = card.wifiString || `WIFI:T:WPA;S:${card.name || ''};P:${card.pwd || ''};;`;
+                openModalWithWifiQr(card.name, targetWifiStr, card.pwd);
+            } else {
+                openModalWithImage(card.name, card.img);
+            }
+        };
+        
+        let tagHtml = card.tag ? `<div class="card-tag">${card.tag}</div>` : '';
+        let nameClass = card.large ? 'card-name card-name-large' : 'card-name';
+        let pwdClass = card.danger ? 'card-pwd pulse-blue' : 'card-pwd';
 
-    baseWifiCards.forEach(card => {
-        if (showCardsArr.includes(card.id)) {
-            const cardEl = document.createElement('div');
-            cardEl.className = `compact-card ${card.danger ? 'danger-card' : ''} ${card.fx && card.fx !== 'default' ? 'fx-' + card.fx : ''}`;
-            
-            cardEl.onclick = () => {
-                const useLink = card.qrMode === 'link' || (card.qrMode !== 'image' && card.wifiString);
-                if (useLink) {
-                    const targetWifiStr = card.wifiString || `WIFI:T:WPA;S:${card.name || ''};P:${card.pwd || ''};;`;
-                    openModalWithWifiQr(card.name, targetWifiStr, card.pwd);
-                } else {
-                    openModalWithImage(card.name, card.img);
-                }
-            };
-            
-            let tagHtml = card.tag ? `<div class="card-tag">${card.tag}</div>` : '';
-            let nameClass = card.large ? 'card-name card-name-large' : 'card-name';
-            let pwdClass = card.danger ? 'card-pwd pulse-blue' : 'card-pwd';
-
-            cardEl.innerHTML = `
-                <div class="${nameClass}">${card.name}</div>
-                <div class="${pwdClass}">${card.pwd}</div>${tagHtml}
-                ${(card.helpType === 'image' && card.helpImg) || (card.helpType === 'text' && card.helpText)
-                    ? `<button type="button" class="card-help-btn" title="查看使用说明" aria-label="查看使用说明" onclick="event.stopPropagation(); openCardHelp('${card.id}')">?</button>`
-                    : ''}
-            `;
-            container.appendChild(cardEl);
-        }
+        cardEl.innerHTML = `
+            <div class="${nameClass}">${card.name}</div>
+            <div class="${pwdClass}">${card.pwd}</div>${tagHtml}
+            ${(card.helpType === 'image' && card.helpImg) || (card.helpType === 'text' && card.helpText)
+                ? `<button type="button" class="card-help-btn" title="查看使用说明" aria-label="查看使用说明" onclick="event.stopPropagation(); if(typeof openAnyCardHelp==='function'){openAnyCardHelp('baseWifiCards', ${idx});}else{openCardHelp('${card.id}');}">?</button>`
+                : ''}
+        `;
+        container.appendChild(cardEl);
     });
 }
 
@@ -265,8 +238,9 @@ function waitForQRCode(callback) { if (window.QRCode) return callback(); setTime
 function startOnlineHeartbeat() {
     const onlineEl = document.getElementById('onlineCount'); if(!onlineEl) return;
     const runHeartbeat = () => {
-        const mode = localStorage.getItem('cfgDataMode') || 'real';
-        if (mode === 'custom') { let fixed = parseInt(localStorage.getItem('cfgOnlineFixed') || '25', 10); onlineEl.innerText = fixed + Math.floor(Math.random() * 3); } 
+        const cfg = window.SiteConfig || {};
+        const mode = cfg.cfgDataMode || 'real';
+        if (mode === 'custom') { let fixed = parseInt(cfg.cfgOnlineFixed || '25', 10); onlineEl.innerText = fixed + Math.floor(Math.random() * 3); } 
         else { onlineEl.innerText = window.lastCalculatedRealOnline; }
     };
     runHeartbeat(); setInterval(runHeartbeat, 6000); 
@@ -462,8 +436,13 @@ window.getLocalAudioBlobUrl = function (key) {
     })).catch(() => '');
 };
 
-// 播放列表：优先使用后台下发的歌单，否则回退到本地 music/ 目录
+// 播放列表：云端已返回配置时严格以云端歌单为准，未连接云端时才回退本地默认曲目
 function getMusicTracks() {
+    if (window.SiteContent && window.SiteContent.remote && window.SiteContent.data && Array.isArray(window.SiteContent.data.music)) {
+        return typeof window.normalizeMusicTracks === 'function'
+            ? window.normalizeMusicTracks(window.SiteContent.data.music)
+            : window.SiteContent.data.music;
+    }
     const remote = window.SiteContent && window.SiteContent.data && window.SiteContent.data.music;
     if (Array.isArray(remote) && remote.length) {
         return typeof window.normalizeMusicTracks === 'function' ? window.normalizeMusicTracks(remote) : remote;
@@ -489,6 +468,68 @@ function getEffectiveTrackRawUrl(track) {
 
 let currentTrackIndex = 0; let audioEl = null; let isPlaying = false; let playMode = 'sequence';
 let fallbackTryingUrl = '';
+const pendingDriveAudioPromises = {};
+let lastLoadedTrackSignature = '';
+
+/**
+ * 提取 Google Drive 文件 ID（支持 drive.google.com/uc?id=...、/file/d/...、lh3.googleusercontent.com/d/...）
+ */
+function extractDriveAudioId(url) {
+    const s = String(url || '').trim();
+    if (!s) return '';
+    if (!/drive\.google\.com|googleusercontent\.com/i.test(s)) return '';
+    const m = /[?&]id=([a-zA-Z0-9_-]{10,})/i.exec(s)
+        || /\/file\/d\/([a-zA-Z0-9_-]{10,})/i.exec(s)
+        || /googleusercontent\.com\/d\/([a-zA-Z0-9_-]{10,})/i.exec(s);
+    return (m && m[1]) ? m[1] : '';
+}
+
+/**
+ * 跨电脑云端音频加载器（带并发去重与 IndexedDB 持久化缓存）：
+ * 当曲目是上传到 Google Drive 的音频时，自动通过后端 ?action=media&id=FILE_ID 拉取音频字节流并缓存为本地 Blob URL，
+ * 彻底绕过 Chrome 303 CORP 跨域拦截，确保任何电脑打开都能直接播放后台上传的音乐。
+ */
+async function ensureCloudAudioBlobUrl(rawUrl, showLoadingToast) {
+    const raw = String(rawUrl || '').trim();
+    if (!raw) return '';
+    const cleanUrl = normalizeMusicTrackUrl(raw);
+
+    // 1. 优先命中本机内存或 IndexedDB 缓存
+    const cached = await window.getLocalAudioBlobUrl(raw) || (cleanUrl !== raw ? await window.getLocalAudioBlobUrl(cleanUrl) : '');
+    if (cached) return cached;
+
+    // 2. 若是 Google Drive 云端音频文件，通过 Apps Script ?action=media&id=FILE_ID 拉取（并发复用同一个 Promise）
+    const driveId = extractDriveAudioId(cleanUrl) || extractDriveAudioId(raw);
+    if (driveId && typeof REPORT_API_URL !== 'undefined' && String(REPORT_API_URL).trim()) {
+        if (!pendingDriveAudioPromises[driveId]) {
+            if (showLoadingToast && typeof showToast === 'function') {
+                showToast('⏳ 正在从云端同步音乐音频流...');
+            }
+            const mediaApi = `${String(REPORT_API_URL).trim()}?action=media&id=${encodeURIComponent(driveId)}`;
+            pendingDriveAudioPromises[driveId] = fetch(mediaApi, { cache: 'no-store' })
+                .then(r => (r.ok ? r.json() : null))
+                .then(async (j) => {
+                    if (j && j.ok && j.base64) {
+                        const blob = base64ToBlob(j.base64, j.mimeType || 'audio/mpeg');
+                        await window.saveLocalAudioBlob(raw, blob);
+                        if (cleanUrl && cleanUrl !== raw) {
+                            await window.saveLocalAudioBlob(cleanUrl, blob);
+                        }
+                        return await window.getLocalAudioBlobUrl(raw) || URL.createObjectURL(blob);
+                    }
+                    return '';
+                })
+                .catch(() => '')
+                .finally(() => {
+                    delete pendingDriveAudioPromises[driveId];
+                });
+        }
+        return pendingDriveAudioPromises[driveId];
+    }
+
+    return '';
+}
+window.ensureCloudAudioBlobUrl = ensureCloudAudioBlobUrl;
 
 /**
  * 在悬浮音乐控件上显示/清除非静默错误提示（如“⚠️ 该链接无法直接播放”）
@@ -585,30 +626,46 @@ function applyTrackCover(track, index) {
     }
 }
 
-function loadTrack(index) {
+function loadTrack(index, preserveIfSamePlaying) {
     if (!audioEl) audioEl = document.getElementById('bgAudio');
     if (!audioEl) return;
     const tracks = getMusicTracks();
-    if (tracks.length === 0) return;
+    if (tracks.length === 0) {
+        const titleEl = document.getElementById('musicTitle');
+        if (titleEl) titleEl.innerText = '暂无曲目';
+        audioEl.removeAttribute('src');
+        lastLoadedTrackSignature = '';
+        return;
+    }
     if (index < 0 || index >= tracks.length) index = 0;
     currentTrackIndex = index;
     const track = tracks[index] || tracks[0];
     const rawUrl = getEffectiveTrackRawUrl(track);
     const normalizedUrl = normalizeMusicTrackUrl(rawUrl);
+    const sig = `${index}|${track.name || ''}|${rawUrl}|${track.cover || ''}`;
+
+    if (preserveIfSamePlaying && isPlaying && sig === lastLoadedTrackSignature && audioEl.getAttribute('src')) {
+        return;
+    }
+    lastLoadedTrackSignature = sig;
     fallbackTryingUrl = '';
     clearMusicWidgetError();
 
-    // 优先检查本地 IndexedDB 是否已缓存该音频 Blob
-    window.getLocalAudioBlobUrl(rawUrl).then(blobUrl => {
+    const isDriveAudio = Boolean(extractDriveAudioId(normalizedUrl) || extractDriveAudioId(rawUrl));
+
+    // 优先检查本地 IndexedDB 是否已缓存该音频 Blob，若为 Google Drive 云端上传音频则在后台预拉取字节流
+    ensureCloudAudioBlobUrl(rawUrl, false).then(blobUrl => {
         if (currentTrackIndex !== index) return;
-        const targetSrc = blobUrl || normalizedUrl;
+        const targetSrc = blobUrl || (!isDriveAudio ? normalizedUrl : '');
         if (targetSrc) {
-            audioEl.src = targetSrc;
-        } else {
+            if (audioEl.src !== targetSrc) audioEl.src = targetSrc;
+        } else if (!isDriveAudio) {
             audioEl.removeAttribute('src');
         }
     });
-    if (normalizedUrl && !/^local-audio:\/\//i.test(normalizedUrl)) {
+
+    // 非 Google Drive 且非 local-audio:// 的常规直链可立即赋给 audioEl.src（Drive 音频走上方 Blob 流规避 303 CORP 报错）
+    if (normalizedUrl && !isDriveAudio && !/^local-audio:\/\//i.test(normalizedUrl)) {
         audioEl.src = normalizedUrl;
     }
 
@@ -631,15 +688,18 @@ function base64ToBlob(b64, mimeType) {
 
 /**
  * 当 Google Drive 直链或外部音频被浏览器 CORP/CORS 拦截时：
- * 1. 先检查本地 IndexedDB 是否有缓存
- * 2. 若是 Google Drive 文件且已配置 REPORT_API_URL，优先通过后端 ?action=media&id=FILE_ID 拉取音频字节流
- * 3. 再尝试 CORS 代理拉取音频流转为本地 Blob URL 播放
- * 4. 若仍失败，绝不静默失败：在音乐控件上直接显示“⚠️ 该链接无法直接播放”并弹出 Toast 提示
+ * 1. 优先通过 ensureCloudAudioBlobUrl（含 IndexedDB 缓存 + ?action=media&id=FILE_ID 云端音频流）加载并播放
+ * 2. 再尝试 CORS 代理拉取音频流转为本地 Blob URL 播放
+ * 3. 若仍失败，绝不静默失败：在音乐控件上直接显示“⚠️ 该链接无法直接播放”并弹出 Toast 提示
  */
+let fallbackInFlightPromise = null;
 async function tryFallbackAudioAndPlay(rawUrl) {
     if (!audioEl || !rawUrl) {
         notifyMusicPlayFailed();
         return;
+    }
+    if (fallbackInFlightPromise) {
+        return fallbackInFlightPromise;
     }
     const cleanUrl = normalizeMusicTrackUrl(rawUrl);
     if (fallbackTryingUrl === cleanUrl) {
@@ -648,65 +708,51 @@ async function tryFallbackAudioAndPlay(rawUrl) {
     }
     fallbackTryingUrl = cleanUrl;
 
-    try {
-        const cachedBlobUrl = await window.getLocalAudioBlobUrl(rawUrl);
-        if (cachedBlobUrl && audioEl.src !== cachedBlobUrl) {
-            audioEl.src = cachedBlobUrl;
-            await audioEl.play();
-            isPlaying = true;
-            clearMusicWidgetError();
-            updateUIState();
-            return;
+    fallbackInFlightPromise = (async () => {
+        try {
+            const cloudOrLocalBlobUrl = await ensureCloudAudioBlobUrl(rawUrl, true);
+            if (cloudOrLocalBlobUrl) {
+                if (audioEl.src !== cloudOrLocalBlobUrl) {
+                    audioEl.src = cloudOrLocalBlobUrl;
+                }
+                await audioEl.play();
+                isPlaying = true;
+                fallbackTryingUrl = '';
+                clearMusicWidgetError();
+                updateUIState();
+                return;
+            }
+        } catch (e) {}
+
+        // 尝试通过公共 CORS 代理拉取音频流（排除已知会跳 404 HTML 的受限地址与 Google Drive）
+        if (/^https?:\/\//i.test(cleanUrl) && !extractDriveAudioId(cleanUrl)) {
+            try {
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(cleanUrl)}`;
+                const res = await fetch(proxyUrl);
+                const ctype = (res.headers && res.headers.get('content-type')) || '';
+                if (res.ok && !ctype.includes('text/html')) {
+                    const blob = await res.blob();
+                    if (blob && blob.size > 1024 && !String(blob.type).includes('text/html')) {
+                        await window.saveLocalAudioBlob(rawUrl, blob);
+                        const blobUrl = URL.createObjectURL(blob);
+                        audioEl.src = blobUrl;
+                        await audioEl.play();
+                        isPlaying = true;
+                        fallbackTryingUrl = '';
+                        clearMusicWidgetError();
+                        updateUIState();
+                        return;
+                    }
+                }
+            } catch (e) {}
         }
-    } catch (e) {}
 
-    // 针对 Google Drive 音频：优先调用 Google Apps Script ?action=media&id=FILE_ID 绕过 Chrome 303 CORP 拦截
-    const driveIdMatch = /[?&]id=([a-zA-Z0-9_-]{10,})/i.exec(cleanUrl) || /\/file\/d\/([a-zA-Z0-9_-]{10,})/i.exec(cleanUrl);
-    if (driveIdMatch && driveIdMatch[1] && typeof REPORT_API_URL !== 'undefined' && String(REPORT_API_URL).trim()) {
-        try {
-            if (typeof showToast === 'function') showToast('⏳ 正在从云端加载音频流...');
-            const mediaApi = `${String(REPORT_API_URL).trim()}?action=media&id=${encodeURIComponent(driveIdMatch[1])}`;
-            const res = await fetch(mediaApi);
-            if (res.ok) {
-                const j = await res.json();
-                if (j && j.ok && j.base64) {
-                    const blob = base64ToBlob(j.base64, j.mimeType || 'audio/mpeg');
-                    await window.saveLocalAudioBlob(rawUrl, blob);
-                    const blobUrl = URL.createObjectURL(blob);
-                    audioEl.src = blobUrl;
-                    await audioEl.play();
-                    isPlaying = true;
-                    clearMusicWidgetError();
-                    updateUIState();
-                    return;
-                }
-            }
-        } catch (e) {}
-    }
+        notifyMusicPlayFailed();
+    })().finally(() => {
+        fallbackInFlightPromise = null;
+    });
 
-    // 尝试通过公共 CORS 代理拉取音频流（排除已知会跳 404 HTML 的受限地址）
-    if (/^https?:\/\//i.test(cleanUrl)) {
-        try {
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(cleanUrl)}`;
-            const res = await fetch(proxyUrl);
-            const ctype = (res.headers && res.headers.get('content-type')) || '';
-            if (res.ok && !ctype.includes('text/html')) {
-                const blob = await res.blob();
-                if (blob && blob.size > 1024 && !String(blob.type).includes('text/html')) {
-                    await window.saveLocalAudioBlob(rawUrl, blob);
-                    const blobUrl = URL.createObjectURL(blob);
-                    audioEl.src = blobUrl;
-                    await audioEl.play();
-                    isPlaying = true;
-                    clearMusicWidgetError();
-                    updateUIState();
-                    return;
-                }
-            }
-        } catch (e) {}
-    }
-
-    notifyMusicPlayFailed();
+    return fallbackInFlightPromise;
 }
 
 function notifyMusicPlayFailed() {
@@ -736,13 +782,19 @@ function playAudio() {
         if (typeof showToast === 'function') showToast('⚠️ 当前曲目未设置音频地址或未上传文件');
         return;
     }
-    if (!audioEl.getAttribute('src')) {
-        loadTrack(currentTrackIndex);
-    }
+    const normalizedUrl = normalizeMusicTrackUrl(rawUrl);
+    const isDriveAudio = Boolean(extractDriveAudioId(normalizedUrl) || extractDriveAudioId(rawUrl));
+
     audioEl.dataset.userTriggered = '1';
-    window.getLocalAudioBlobUrl(rawUrl).then(blobUrl => {
-        if (blobUrl && audioEl.src !== blobUrl) {
-            audioEl.src = blobUrl;
+    ensureCloudAudioBlobUrl(rawUrl, isDriveAudio).then(blobUrl => {
+        if (blobUrl) {
+            if (audioEl.src !== blobUrl) audioEl.src = blobUrl;
+        } else if (!audioEl.getAttribute('src') && normalizedUrl && !isDriveAudio && !/^local-audio:\/\//i.test(normalizedUrl)) {
+            audioEl.src = normalizedUrl;
+        }
+        if (!audioEl.getAttribute('src')) {
+            tryFallbackAudioAndPlay(rawUrl);
+            return;
         }
         const p = audioEl.play();
         if (p && typeof p.then === 'function') {
@@ -1125,27 +1177,31 @@ function injectAdminControls() {
     const container = document.getElementById('adminControlContainer'); 
     if (!container) return; // 移除之前的 return 拦截，确保无论何时调用都能强制挂载最新 HTML
 
-    const mode = localStorage.getItem('cfgDataMode') || 'real'; 
-    const totalMode = localStorage.getItem('cfgTotalMode') || 'offset'; 
-    const offset = localStorage.getItem('cfgTotalOffset') || '1240'; 
-    const totalFixed = localStorage.getItem('cfgTotalFixed') || '8888'; 
-    const onlineFixed = localStorage.getItem('cfgOnlineFixed') || '25'; 
+    const cfg = window.SiteConfig || {};
+    const mode = cfg.cfgDataMode || 'real'; 
+    const totalMode = cfg.cfgTotalMode || 'offset'; 
+    const offset = cfg.cfgTotalOffset || '1240'; 
+    const totalFixed = cfg.cfgTotalFixed || '8888'; 
+    const onlineFixed = cfg.cfgOnlineFixed || '25'; 
     const isLocked = localStorage.getItem('keepAdminOpen') === 'true' ? 'checked' : '';
     
-    const showSoftRouter = (localStorage.getItem('cfgShowSoftRouter') || 'false') === 'true' ? 'checked' : '';
+    const showSoftRouter = String(cfg.cfgShowSoftRouter || 'false') === 'true' ? 'checked' : '';
     
-    let showCardsStr = localStorage.getItem('cfgShowWifiCards');
-    if (!showCardsStr || showCardsStr === 'undefined' || showCardsStr === 'null') showCardsStr = 'ads';
-    const showCardsArr = showCardsStr.split(',').filter(Boolean);
+    const curSiteContent = (window.SiteContent && window.SiteContent.data) ? window.SiteContent.data : null;
+    const wifiCardsList = (curSiteContent && Array.isArray(curSiteContent.baseWifiCards))
+        ? curSiteContent.baseWifiCards
+        : (Array.isArray(baseWifiCards) ? baseWifiCards : []);
 
-    let wifiCheckboxesHtml = baseWifiCards.map(c => `
+    let wifiCheckboxesHtml = wifiCardsList.map(c => {
+        const isVis = typeof window.isCardVisible === 'function' ? window.isCardVisible(c) : (c && c.visible !== false);
+        return `
         <label class="admin-radio-label" style="font-size:12px;">
-            <input type="checkbox" name="cfgWifiCardItem" value="${c.id}" ${showCardsArr.includes(c.id) ? 'checked' : ''}> ${c.name}
+            <input type="checkbox" name="cfgWifiCardItem" value="${c.id}" ${isVis ? 'checked' : ''}> ${c.name}
         </label>
-    `).join('');
+        `;
+    }).join('');
 
     const isCtrlCollapsed = window.__adminControlCollapsed !== false;
-    const curSiteContent = typeof window.getSiteContent === 'function' ? window.getSiteContent() : null;
     const wifiBlockCfg = (curSiteContent && curSiteContent.sectionBlocks && curSiteContent.sectionBlocks.wifi) || { helpEnabled: true, helpType: 'image' };
     const showWifiHelpBtn = (wifiBlockCfg.helpEnabled !== false && (wifiBlockCfg.helpType === 'image' || wifiBlockCfg.helpType === 'text')) ? 'checked' : '';
 
@@ -1206,15 +1262,32 @@ window.saveAdminConfig = function() {
     const oFixed = document.getElementById('cfgOnlineFixed').value.trim() || '1'; 
     
     const showSoftRouter = document.getElementById('cfgShowSoftRouterInput') ? (document.getElementById('cfgShowSoftRouterInput').checked ? 'true' : 'false') : 'false';
-    const checkedCards = Array.from(document.querySelectorAll('input[name="cfgWifiCardItem"]:checked')).map(el => el.value).join(',') || 'ads';
+    const checkedIdList = Array.from(document.querySelectorAll('input[name="cfgWifiCardItem"]:checked')).map(el => el.value);
+    const checkedCards = checkedIdList.join(',');
 
-    localStorage.setItem('cfgDataMode', mode); 
-    localStorage.setItem('cfgTotalMode', tMode); 
-    localStorage.setItem('cfgTotalOffset', tOffset); 
-    localStorage.setItem('cfgTotalFixed', tFixed); 
-    localStorage.setItem('cfgOnlineFixed', oFixed); 
-    localStorage.setItem('cfgShowSoftRouter', showSoftRouter);
-    localStorage.setItem('cfgShowWifiCards', checkedCards);
+    window.SiteConfig = Object.assign({}, window.SiteConfig || {}, {
+        cfgDataMode: mode,
+        cfgTotalMode: tMode,
+        cfgTotalOffset: tOffset,
+        cfgTotalFixed: tFixed,
+        cfgOnlineFixed: oFixed,
+        cfgShowSoftRouter: showSoftRouter,
+        cfgShowWifiCards: checkedCards
+    });
+
+    // 同步基础网络卡片显隐状态到 SiteContent 与 cmsState
+    if (window.SiteContent && window.SiteContent.data && Array.isArray(window.SiteContent.data.baseWifiCards)) {
+        window.SiteContent.data.baseWifiCards.forEach(c => {
+            if (c) c.visible = checkedIdList.includes(c.id);
+        });
+        baseWifiCards = window.SiteContent.data.baseWifiCards;
+    }
+    if (typeof cmsState !== 'undefined' && cmsState && Array.isArray(cmsState.baseWifiCards)) {
+        cmsState.baseWifiCards.forEach(c => {
+            if (c) c.visible = checkedIdList.includes(c.id);
+        });
+        if (typeof renderCmsPanel === 'function') renderCmsPanel();
+    }
 
     applyWifiLayoutConfig(); 
     showToast("🔄 正在向云端下发全局指令..."); 
@@ -1236,8 +1309,16 @@ window.saveAdminConfig = function() {
             cfgShowSoftRouter: showSoftRouter,
             cfgShowWifiCards: checkedCards
         };
-        window.postToApi(configData, true).then((j) => {
-            if (j && j.ok) { setTimeout(() => showToast("✅ 全局指令下发成功！全员前台已同步"), 1000); refreshAdminLogs(); } 
+        const pCfg = window.postToApi(configData, true);
+        let pContent = Promise.resolve({ ok: true });
+        if (window.SiteContent && window.SiteContent.data) {
+            const payload = typeof window.compactSiteContentForSave === 'function'
+                ? window.compactSiteContentForSave(window.SiteContent.data)
+                : window.SiteContent.data;
+            pContent = window.postToApi({ action: 'SAVE_CONTENT', token: adminToken, content: payload }, true).catch(() => ({ ok: false }));
+        }
+        Promise.all([pCfg, pContent]).then(([j]) => {
+            if (j && j.ok) { setTimeout(() => showToast("✅ 全局指令下发成功！全员前台已同步"), 600); refreshAdminLogs(); } 
             else { showToast("❌ " + ((j && j.error) || "下发失败，请检查密钥")); localStorage.removeItem('mnAdminToken'); }
         }).catch(()=>{ showToast("❌ 网络异常"); });
     }
@@ -1259,37 +1340,34 @@ async function silentTrackAccess() {
 
 function refreshAdminLogs() {
     const tbody = document.querySelector('#adminLogTable tbody'); if(!tbody) return;
-    let cachedTotal = parseInt(localStorage.getItem('lastTotalCount') || '0', 10);
-    if (!window.currentVisitCounted) { cachedTotal += 1; }
-    
-    let mode = localStorage.getItem('cfgDataMode') || 'real'; let tempDisplay = cachedTotal;
-    if (mode === 'custom') { const tMode = localStorage.getItem('cfgTotalMode') || 'offset'; if (tMode === 'fixed') { tempDisplay = parseInt(localStorage.getItem('cfgTotalFixed') || '8888', 10); } else { tempDisplay = cachedTotal + parseInt(localStorage.getItem('cfgTotalOffset') || '1240', 10); } }
-    const totalEl = document.getElementById('totalServedCount'); if(totalEl && (totalEl.innerText === '--' || totalEl.innerText === '0')) { totalEl.innerText = tempDisplay; }
+    const cfg = window.SiteConfig || {};
+    const totalEl = document.getElementById('totalServedCount');
 
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:40px">正在建立安全信道，拉取云端数据总线...</td></tr>';
     
     if (REPORT_API_URL) {
         const noCacheUrl = REPORT_API_URL + "?t=" + new Date().getTime();
-        fetch(noCacheUrl).then(res => res.json()).then(data => { 
+        fetch(noCacheUrl, { cache: 'no-store' }).then(res => res.json()).then(data => { 
             let logs = Array.isArray(data) ? data : (data.logs || []); let baseTotal = Array.isArray(data) ? data.length : (data.total || 0); window.lastCalculatedRealOnline = 1;
-            if (!window.currentVisitCounted) { baseTotal += 1; window.currentVisitCounted = true; } localStorage.setItem('lastTotalCount', baseTotal);
+            if (!window.currentVisitCounted) { baseTotal += 1; window.currentVisitCounted = true; }
             
-            // 云端展示配置逐项同步（只要有就同步，不强制要求 cfgDataMode 存在）
+            // 云端展示配置存入内存 window.SiteConfig（不使用 localStorage 旧缓存）
             if (data.config && typeof data.config === 'object') {
                 ['cfgDataMode', 'cfgTotalMode', 'cfgTotalOffset', 'cfgTotalFixed', 'cfgOnlineFixed', 'cfgShowSoftRouter', 'cfgShowWifiCards'].forEach(k => {
                     const v = data.config[k];
-                    if (v !== undefined && v !== null && v !== '') localStorage.setItem(k, v);
+                    if (v !== undefined && v !== null && v !== '') cfg[k] = String(v);
                 });
+                window.SiteConfig = cfg;
                 applyWifiLayoutConfig();
             }
             
-            mode = localStorage.getItem('cfgDataMode') || 'real'; let finalDisplay = baseTotal;
-            if (mode === 'custom') { const tMode = localStorage.getItem('cfgTotalMode') || 'offset'; if (tMode === 'fixed') { finalDisplay = parseInt(localStorage.getItem('cfgTotalFixed') || '8888', 10); } else { finalDisplay = baseTotal + parseInt(localStorage.getItem('cfgTotalOffset') || '1240', 10); } }
+            let mode = cfg.cfgDataMode || 'real'; let finalDisplay = baseTotal;
+            if (mode === 'custom') { const tMode = cfg.cfgTotalMode || 'offset'; if (tMode === 'fixed') { finalDisplay = parseInt(cfg.cfgTotalFixed || '8888', 10); } else { finalDisplay = baseTotal + parseInt(cfg.cfgTotalOffset || '1240', 10); } }
             if(totalEl) { let startVal = parseInt(totalEl.innerText); if (isNaN(startVal)) startVal = 0; animateValue(totalEl, startVal, finalDisplay, 1500); }
             const realTotalRowEl = document.getElementById('realTotalRow'); if(realTotalRowEl) realTotalRowEl.innerText = baseTotal;
             if(logs.length > 0) { renderLogTable(logs); renderTrafficChart(logs); } else { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:40px">大盘空置</td></tr>'; }
             startOnlineHeartbeat();
-        }).catch((err) => { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#FF2D55; font-weight:bold; padding:40px">❌ 链路断开：仅展示本地缓存数据</td></tr>'; });
+        }).catch((err) => { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#FF2D55; font-weight:bold; padding:40px">❌ 链路断开：无法连接云端</td></tr>'; });
     }
 }
 
@@ -1314,7 +1392,7 @@ function renderLogTable(logs) {
     
     window.lastCalculatedRealOnline = activeIps.size > 0 ? activeIps.size : 1;
     const realOnlineIpEl = document.getElementById('realOnlineIp'); if(realOnlineIpEl) realOnlineIpEl.innerText = window.lastCalculatedRealOnline;
-    if ((localStorage.getItem('cfgDataMode') || 'real') === 'real') { const oEl = document.getElementById('onlineCount'); if(oEl) oEl.innerText = window.lastCalculatedRealOnline; }
+    if (((window.SiteConfig && window.SiteConfig.cfgDataMode) || 'real') === 'real') { const oEl = document.getElementById('onlineCount'); if(oEl) oEl.innerText = window.lastCalculatedRealOnline; }
 }
 
 function renderTrafficChart(logs) {

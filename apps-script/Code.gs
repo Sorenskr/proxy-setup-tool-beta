@@ -410,16 +410,88 @@ function saveConfig(data) {
   PropertiesService.getScriptProperties().setProperty('SITE_CONFIG', JSON.stringify(cfg));
 }
 
+var CONTENT_SHEET_NAME = 'SITE_Content';
+var CONTENT_CHUNK_SIZE = 2500; // 单键安全切片长度（即便全中文 3字节/字 也仅 7.5KB，远低于 PropertiesService 单键 9KB 限制）
+
 function getContent() {
-  var raw = PropertiesService.getScriptProperties().getProperty('SITE_CONTENT');
-  var c = {};
-  if (raw) { try { c = JSON.parse(raw) || {}; } catch (e) { c = {}; } }
-  return c;
+  var props = PropertiesService.getScriptProperties();
+  var chunkCount = parseInt(props.getProperty('SITE_CONTENT_CHUNKS') || '0', 10);
+  if (!isNaN(chunkCount) && chunkCount > 0) {
+    var parts = [];
+    for (var i = 0; i < chunkCount; i++) {
+      parts.push(props.getProperty('SITE_CONTENT_' + i) || '');
+    }
+    var joined = parts.join('');
+    if (joined) {
+      try {
+        var parsed = JSON.parse(joined);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (e) {}
+    }
+  }
+
+  var raw = props.getProperty('SITE_CONTENT');
+  if (raw) {
+    try {
+      var c = JSON.parse(raw);
+      if (c && typeof c === 'object' && Object.keys(c).length > 0) return c;
+    } catch (e) {}
+  }
+
+  // 兜底从 Google 表格 SITE_Content 工作表读取
+  try {
+    var sh = getSheet_(CONTENT_SHEET_NAME, ['更新时间', 'SITE_CONTENT_JSON']);
+    if (sh.getLastRow() >= 2) {
+      var sheetJson = String(sh.getRange(2, 2).getValue() || '').trim();
+      if (sheetJson) {
+        var fromSheet = JSON.parse(sheetJson);
+        if (fromSheet && typeof fromSheet === 'object') return fromSheet;
+      }
+    }
+  } catch (e) {}
+
+  return {};
 }
 
 function saveContent(content) {
-  PropertiesService.getScriptProperties()
-    .setProperty('SITE_CONTENT', JSON.stringify(content || {}));
+  var safeObj = (content && typeof content === 'object') ? content : {};
+  var jsonStr = JSON.stringify(safeObj);
+  var props = PropertiesService.getScriptProperties();
+
+  // 1. 分片写入 PropertiesService，彻底规避单键 9KB (Argument too large: value) 限制
+  var prevCount = parseInt(props.getProperty('SITE_CONTENT_CHUNKS') || '0', 10) || 0;
+  var totalChunks = Math.max(1, Math.ceil(jsonStr.length / CONTENT_CHUNK_SIZE));
+  for (var i = 0; i < totalChunks; i++) {
+    var slice = jsonStr.slice(i * CONTENT_CHUNK_SIZE, (i + 1) * CONTENT_CHUNK_SIZE);
+    props.setProperty('SITE_CONTENT_' + i, slice);
+  }
+  props.setProperty('SITE_CONTENT_CHUNKS', String(totalChunks));
+  for (var j = totalChunks; j < prevCount; j++) {
+    props.deleteProperty('SITE_CONTENT_' + j);
+  }
+  if (jsonStr.length <= CONTENT_CHUNK_SIZE) {
+    props.setProperty('SITE_CONTENT', jsonStr);
+  } else {
+    props.deleteProperty('SITE_CONTENT');
+  }
+
+  // 2. 同步持久化一份到 Google 表格 SITE_Content 工作表作为双保险
+  try {
+    var sh = getSheet_(CONTENT_SHEET_NAME, ['更新时间', 'SITE_CONTENT_JSON']);
+    sh.getRange(2, 1, 1, 2).setValues([[nowStr(), jsonStr]]);
+  } catch (e) {}
+
+  // 3. 若包含 baseWifiCards，同步更新全局配置中的 cfgShowWifiCards
+  try {
+    if (Array.isArray(safeObj.baseWifiCards)) {
+      var visIds = safeObj.baseWifiCards
+        .filter(function (c) { return c && c.visible !== false && c.visible !== 'false' && c.visible !== 0 && c.hidden !== true; })
+        .map(function (c) { return c.id; })
+        .filter(Boolean)
+        .join(',');
+      saveConfig({ cfgShowWifiCards: visIds });
+    }
+  } catch (e) {}
 }
 
 function getProbeResult() {

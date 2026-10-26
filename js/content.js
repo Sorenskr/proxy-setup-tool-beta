@@ -1,31 +1,49 @@
 /* ============================================================
  * content.js —— 站点内容远程配置中心
- * 从 Google Apps Script 拉取后台配置（WiFi 卡片 / 音乐 / 背景 / 教程）
- * 拉取失败时自动回退到本地硬编码默认值 + localStorage 缓存
+ * 每次打开页面实时从 Google Apps Script 拉取最新后台 SITE_CONTENT 配置
+ * 严格以后台返回的 content 为准（后台隐藏/删除的卡片一律不渲染；
+ * fetch 失败时不回退到硬编码旧卡片数据，也不使用 localStorage 缓存）
  * ============================================================ */
 (function () {
-    const CACHE_KEY = 'mnContentCache';
-    const LOCAL_KEY = 'mnContentLocal'; // 未部署云端时的本机保存兜底
+    // 清理旧版本残留在浏览器 localStorage 中的配置与内容缓存，杜绝旧缓存干扰
+    try {
+        [
+            'mnContentCache',
+            'mnContentLocal',
+            'mnProbeStateCache',
+            'cfgShowWifiCards',
+            'cfgShowSoftRouter',
+            'cfgDataMode',
+            'cfgTotalMode',
+            'cfgTotalOffset',
+            'cfgTotalFixed',
+            'cfgOnlineFixed',
+            'cfgProbeIntervalMin',
+            'lastTotalCount'
+        ].forEach(k => localStorage.removeItem(k));
+    } catch (e) {}
 
     window.hasCloudApi = function () {
         try { return typeof REPORT_API_URL !== 'undefined' && !!String(REPORT_API_URL).trim(); }
         catch (e) { return false; }
     };
 
-    function localOverride() {
-        try {
-            const s = localStorage.getItem(LOCAL_KEY);
-            return s ? JSON.parse(s) : null;
-        } catch (e) { return null; }
-    }
-
-    window.SiteContent = { loaded: false, data: null, remote: false };
+    window.SiteContent = { loaded: false, data: null, remote: false, fetchFailed: false };
 
     function apiUrl(extra) {
         const base = (typeof REPORT_API_URL !== 'undefined' ? REPORT_API_URL : '').trim();
         if (!base) return '';
         return base + (extra || '');
     }
+
+    /** 统一判定卡片是否可见（兼容布尔 false、字符串 "false"、数字 0 及 hidden 标记） */
+    function isCardVisible(o) {
+        if (!o || typeof o !== 'object') return false;
+        if (o.visible === false || o.visible === 'false' || o.visible === 0 || o.visible === '0') return false;
+        if (o.hidden === true || o.hidden === 'true' || o.hidden === 1 || o.hidden === '1') return false;
+        return true;
+    }
+    window.isCardVisible = isCardVisible;
 
     function normalizeHelpFields(o) {
         const helpType = (o.helpType === 'image' || o.helpType === 'text') ? o.helpType : '';
@@ -58,7 +76,7 @@
                 qrMode: qrMode,
                 img: String(o.img || '').trim(),
                 wifiString: qrMode === 'link' ? wifiString : '',
-                visible: o.visible !== false,
+                visible: isCardVisible(o),
                 helpType: help.helpType,
                 helpImg: help.helpImg,
                 helpText: help.helpText
@@ -91,7 +109,7 @@
                 ssid: ssid,
                 pwd: pwd,
                 qrText: qrText,
-                visible: o.visible !== false,
+                visible: isCardVisible(o),
                 helpType: help.helpType,
                 helpImg: help.helpImg,
                 helpText: help.helpText
@@ -112,7 +130,7 @@
                 qrMode: o.qrMode === 'link' ? 'link' : 'image',
                 imgPath: String(o.imgPath || '').trim(),
                 proxyUrl: String(o.proxyUrl || '').trim(),
-                visible: o.visible !== false,
+                visible: isCardVisible(o),
                 firstOnlineAt: String(o.firstOnlineAt || '2026/10/22 10:00:00').trim(),
                 statusOverride: statusOverride,
                 manualOverride: statusOverride !== 'auto' || Boolean(o.manualOverride),
@@ -125,13 +143,6 @@
         });
     }
     window.normalizeProxyCards = normalizeProxyCards;
-
-    const DEFAULT_NET_TEST_LIST = [
-        { id: 'net_dnsleak', name: 'DNSLeakTest', qrMode: 'link', url: 'dnsleaktest.com', imgPath: '', desc: '测 IP DNS 泄漏', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'net_whoer',   name: 'Whoer',       qrMode: 'link', url: 'whoer.com',       imgPath: '', desc: '综合匿名度评分，看 IP 干不干净、WebRTC/DNS 泄不泄漏', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'net_ping0',   name: 'Ping0',       qrMode: 'link', url: 'ping0.cc',        imgPath: '', desc: '测 IP 纯净度/风险分', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'net_ipinfo',  name: 'IPinfo',      qrMode: 'link', url: 'ipinfo.io',       imgPath: '', desc: '查 IP 地理位置、ASN、时区、运营商', visible: true, helpType: '', helpImg: '', helpText: '' }
-    ];
 
     function normalizeNetTestCards(list) {
         if (!Array.isArray(list)) return [];
@@ -146,7 +157,7 @@
                 url: String(o.url || '').trim(),
                 imgPath: String(o.imgPath || '').trim(),
                 desc: String(o.desc || '').trim(),
-                visible: o.visible !== false,
+                visible: isCardVisible(o),
                 helpType: help.helpType,
                 helpImg: help.helpImg,
                 helpText: help.helpText
@@ -154,7 +165,7 @@
         });
     }
     window.normalizeNetTestCards = normalizeNetTestCards;
-    window.netTestList = normalizeNetTestCards(DEFAULT_NET_TEST_LIST);
+    window.netTestList = [];
 
     /* ---------------- 内置高清官方风格 App 图标库（SVG Data URI，零延迟且永不裂图） ---------------- */
     function svgToDataUri(svgStr) {
@@ -175,9 +186,17 @@
         defaultApp: svgToDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><defs><linearGradient id="da" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#007AFF"/><stop offset="100%" stop-color="#5856D6"/></linearGradient></defs><rect width="120" height="120" rx="26" fill="url(#da)"/><path d="M60 28v44m0 0l-16-16m16 16l16-16M34 86h52" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`)
     };
 
+    const BUILTIN_ICON_SET = new Set(Object.values(BUILTIN_APP_ICONS));
+
+    window.isBuiltinAppIcon = function (iconStr) {
+        const s = String(iconStr || '').trim();
+        if (!s) return true;
+        return BUILTIN_ICON_SET.has(s) || s.startsWith('data:image/svg+xml;utf8,');
+    };
+
     window.getDefaultAppIcon = function (name, customIcon) {
         const custom = String(customIcon || '').trim();
-        if (custom) return custom;
+        if (custom && !BUILTIN_ICON_SET.has(custom)) return custom;
         const n = String(name || '').toLowerCase();
         if (n.includes('gmail')) return BUILTIN_APP_ICONS.gmail;
         if (n.includes('微信') || n.includes('wetype')) return BUILTIN_APP_ICONS.wetype;
@@ -192,20 +211,6 @@
         return BUILTIN_APP_ICONS.defaultApp;
     };
 
-    /* ---------------- 区块一：📱 手机 App 下载（App Store）默认数据 ---------------- */
-    const DEFAULT_APP_STORE_LIST = [
-        { id: 'app_gmail',        name: 'Gmail',        icon: BUILTIN_APP_ICONS.gmail,        qrMode: 'link', url: 'https://apps.apple.com/us/app/gmail-email-by-google/id422689480',                           imgPath: '', desc: 'Google 官方邮箱客户端，支持多账号管理与实时邮件通知', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_wetype',       name: '微信输入法',   icon: BUILTIN_APP_ICONS.wetype,       qrMode: 'link', url: 'https://apps.apple.com/us/app/%E5%BE%AE%E4%BF%A1%E8%BE%93%E5%85%A5%E6%B3%95/id1618175312', imgPath: '', desc: '腾讯官方出品输入法，支持跨设备剪贴板同步与智能词库', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_x',            name: 'X',            icon: BUILTIN_APP_ICONS.x,            qrMode: 'link', url: 'https://apps.apple.com/us/app/x/id333903271',                                               imgPath: '', desc: '原 Twitter 官方客户端，全球实时资讯与跨境社媒运营必备', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_egern',        name: 'Egern',        icon: BUILTIN_APP_ICONS.egern,        qrMode: 'link', url: 'https://apps.apple.com/us/app/egern/id1616105820',                                          imgPath: '', desc: 'iOS 高性能网络代理客户端，支持 Hysteria2 / SOCKS5 扫码一键添加', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_deltachat',    name: 'Delta Chat',   icon: BUILTIN_APP_ICONS.deltachat,    qrMode: 'link', url: 'https://apps.apple.com/us/app/delta-chat/id1459523234?l=zh-Hant-TW',                        imgPath: '', desc: '基于邮箱协议的端到端加密聊天工具，安全稳定无需手机号', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_threads',      name: 'Threads',      icon: BUILTIN_APP_ICONS.threads,      qrMode: 'link', url: 'https://apps.apple.com/us/app/threads/id6446901002',                                        imgPath: '', desc: 'Meta 旗下文字社交平台，与 Instagram 账号一键互通', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_tiktok',       name: 'TikTok',       icon: BUILTIN_APP_ICONS.tiktok,       qrMode: 'link', url: 'https://apps.apple.com/us/app/tiktok-videos-shop-live/id835599320',                         imgPath: '', desc: '海外版抖音短视频与直播商城（建议代理纯净度≥90%后打开）', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_facebook',     name: 'Facebook',     icon: BUILTIN_APP_ICONS.facebook,     qrMode: 'link', url: 'https://apps.apple.com/us/app/facebook/id284882215',                                        imgPath: '', desc: 'Meta 核心社交平台，支持公共主页、广告投放与社群运营', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_instagram',    name: 'Instagram',    icon: BUILTIN_APP_ICONS.instagram,    qrMode: 'link', url: 'https://apps.apple.com/us/app/instagram/id389801252',                                       imgPath: '', desc: '图片与 Reels 短视频社交平台，品牌视觉与私域引流核心阵地', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'app_shadowrocket', name: 'Shadowrocket', icon: BUILTIN_APP_ICONS.shadowrocket, qrMode: 'link', url: 'https://apps.apple.com/us/app/shadowrocket/id932747118?l=zh-Hant-TW',                       imgPath: '', desc: 'iOS 经典小火箭代理工具，支持多协议节点扫码导入与分流', visible: true, helpType: '', helpImg: '', helpText: '' }
-    ];
-
     function normalizeAppStoreCards(list) {
         if (!Array.isArray(list)) return [];
         return list.map((c, idx) => {
@@ -213,15 +218,18 @@
             const help = normalizeHelpFields(o);
             const name = String(o.name || '').trim();
             const qrMode = o.qrMode === 'image' ? 'image' : 'link';
+            const rawIcon = String(o.icon || '').trim();
+            // 不把内置大体积 SVG Data URI 写死进配置对象，避免撑爆 Apps Script 9KB 属性限制
+            const customIcon = window.isBuiltinAppIcon(rawIcon) ? '' : rawIcon;
             return {
                 id: String(o.id || ('app_' + (idx + 1))).trim(),
                 name: name,
-                icon: window.getDefaultAppIcon(name, o.icon),
+                icon: customIcon,
                 qrMode: qrMode,
                 url: String(o.url || '').trim(),
                 imgPath: String(o.imgPath || '').trim(),
                 desc: String(o.desc || '').trim(),
-                visible: o.visible !== false,
+                visible: isCardVisible(o),
                 helpType: help.helpType,
                 helpImg: help.helpImg,
                 helpText: help.helpText
@@ -229,24 +237,7 @@
         });
     }
     window.normalizeAppStoreCards = normalizeAppStoreCards;
-    window.appStoreList = normalizeAppStoreCards(DEFAULT_APP_STORE_LIST);
-
-    /* ---------------- 区块二：💻 电脑软件 默认数据 ---------------- */
-    const DEFAULT_PC_SOFT_LIST = [
-        { id: 'pc_clash',      name: 'Clash Verge Rev', url: 'https://github.com/clash-verge-rev/clash-verge-rev/releases', desc: '桌面端主流代理分流客户端，内置 Clash.Meta 内核，支持订阅与TUN模式', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_bitbrowser', name: 'BitBrowser',      url: 'https://www.bitbrowser.cn/download',                          desc: '比特指纹浏览器，支持多账号独立防关联环境隔离与团队协同', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_chrome',     name: 'Google Chrome',   url: 'https://www.google.com/chrome/',                              desc: 'Google 官方网页浏览器，跨境业务与扩展插件标准运行环境', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_capcut',     name: '剪映',            url: 'https://www.capcut.cn/',                                      desc: '全功能视频剪辑工具，支持智能字幕识别、AI配音与短视频素材库', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_potplayer',  name: 'PotPlayer',       url: 'https://potplayer.tv/?lang=zh_CN',                            desc: 'Windows 高性能全格式多媒体播放器，硬件加速解码、无广告', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_honeyview',  name: 'Honeyview',       url: 'https://honeyview.net/',                                      desc: '极速轻量级图片查看器，支持多种图片格式与压缩包免解压预览', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_icaros',     name: 'Icaros',          url: 'https://github.com/Xanashi/Icaros/releases',                  desc: 'Windows 资源管理器视频缩略图补全工具，支持各类格式封面预览', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_everything', name: 'Everything',      url: 'https://www.voidtools.com/zh-cn/downloads/',                  desc: '毫秒级本地文件搜索神器，输入关键词瞬间定位全盘文件与素材', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_sogou',      name: '搜狗输入法',      url: 'https://shurufa.sogou.com/',                                  desc: '中文智能拼音输入法，支持丰富细胞词库与快捷短语同步', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_dingtalk',   name: '钉钉',            url: 'https://www.dingtalk.com/',                                   desc: '团队协同办公与即时通讯平台，支持文档协作、音视频会议与考勤', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_deltachat',  name: 'Delta Chat',      url: 'https://delta.chat/zh_CN/download',                           desc: '电脑端加密通讯客户端，支持与手机端扫码同步多端加密消息', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_i4',         name: 'i4',              url: 'https://i4.cn/',                                              desc: '爱思助手电脑版，iOS 设备验机、素材导入导出与刷机备份工具', visible: true, helpType: '', helpImg: '', helpText: '' },
-        { id: 'pc_yuque',      name: '语雀文档',        url: 'https://www.yuque.com/u37186489/tgrg5b/hbeqd8mhfr2f6p2t',     desc: '团队业务知识库与标准SOP操作文档中心，点击直达查阅', visible: true, helpType: '', helpImg: '', helpText: '' }
-    ];
+    window.appStoreList = [];
 
     function normalizePcSoftCards(list) {
         if (!Array.isArray(list)) return [];
@@ -258,7 +249,7 @@
                 name: String(o.name || '').trim(),
                 url: String(o.url || '').trim(),
                 desc: String(o.desc || '').trim(),
-                visible: o.visible !== false,
+                visible: isCardVisible(o),
                 helpType: help.helpType,
                 helpImg: help.helpImg,
                 helpText: help.helpText
@@ -266,7 +257,7 @@
         });
     }
     window.normalizePcSoftCards = normalizePcSoftCards;
-    window.pcSoftList = normalizePcSoftCards(DEFAULT_PC_SOFT_LIST);
+    window.pcSoftList = [];
 
     /* ---------------- 区块三：🔒 隐藏专区 归一化（初始为空，默认总开关关闭） ---------------- */
     function normalizeSecretZoneCards(list) {
@@ -276,15 +267,17 @@
             const help = normalizeHelpFields(o);
             const name = String(o.name || '').trim();
             const qrMode = o.qrMode === 'image' ? 'image' : 'link';
+            const rawIcon = String(o.icon || '').trim();
+            const customIcon = window.isBuiltinAppIcon(rawIcon) ? '' : rawIcon;
             return {
                 id: String(o.id || ('secret_' + (idx + 1))).trim(),
                 name: name,
-                icon: String(o.icon || '').trim() || window.getDefaultAppIcon(name, ''),
+                icon: customIcon,
                 qrMode: qrMode,
                 url: String(o.url || '').trim(),
                 imgPath: String(o.imgPath || '').trim(),
                 desc: String(o.desc || '').trim(),
-                visible: o.visible !== false,
+                visible: isCardVisible(o),
                 helpType: help.helpType,
                 helpImg: help.helpImg,
                 helpText: help.helpText
@@ -418,7 +411,6 @@
         Object.keys(DEFAULT_SECTION_BLOCKS).forEach(k => {
             const def = DEFAULT_SECTION_BLOCKS[k];
             const b = Object.assign({}, (src[k] && typeof src[k] === 'object') ? src[k] : {});
-            // 若 wifi 主区块仍为旧版自动继承的 @Ads 教程图，则自动升级为独立的专区文字说明，与 @Ads 卡片问号彻底解耦
             if (k === 'wifi' && b.helpType === 'image' && b.helpImg === 'images/@Ads tutorial.jpg') {
                 b.helpType = 'text';
                 b.helpImg = '';
@@ -464,8 +456,69 @@
     }
     window.normalizeSectionBlocks = normalizeSectionBlocks;
 
-    /** 以 main.js 中的硬编码数据作为默认值，保证未配置后台时功能不变 */
-    function defaultContent() {
+    /**
+     * 仅供后台 CMS「载入初始模板」按钮手动调用的预设卡片模板（前端渲染绝不自动回退到此模板）
+     */
+    const TEMPLATE_BASE_WIFI_CARDS = [
+        { id: 'ads',     name: '@Ads',          pwd: 'a123456789', img: 'images/@Ads.png',          qrMode: 'image', wifiString: '', visible: true, helpType: 'image', helpImg: 'images/@Ads tutorial.jpg', helpText: '' },
+        { id: 'meitu',   name: 'meitu',         pwd: 'a123456789', img: 'images/meitu.jpg',         qrMode: 'image', wifiString: '', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'zone',    name: 'Zone',          pwd: 'a123456789', img: 'images/Zone.jpg',          qrMode: 'image', wifiString: '', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'usa',     name: 'USA-TikTok-5G', pwd: '88888888',   img: 'images/USA-TikTok-5G.jpg', qrMode: 'image', wifiString: '', visible: true, helpType: '', helpImg: '', helpText: '' }
+    ];
+    const TEMPLATE_PROXY_LIST = [
+        { id: 'proxy_1', name: '1.15.125.134',   qrMode: 'image', imgPath: 'images/1.15.125.134.png',   proxyUrl: '', visible: true },
+        { id: 'proxy_2', name: '43.138.27.229',  qrMode: 'image', imgPath: 'images/43.138.27.229.png',  proxyUrl: '', visible: true },
+        { id: 'proxy_3', name: '129.204.147.62', qrMode: 'image', imgPath: 'images/129.204.147.62.jpg', proxyUrl: '', visible: true },
+        { id: 'proxy_4', name: '175.24.132.155', qrMode: 'image', imgPath: 'images/175.24.132.155.jpg', proxyUrl: '', visible: true },
+        { id: 'proxy_5', name: '118.89.184.56',  qrMode: 'image', imgPath: 'images/118.89.184.56.jpg',  proxyUrl: '', visible: true },
+        { id: 'proxy_6', name: '43.163.112.142', qrMode: 'image', imgPath: 'images/43.163.112.142.jpg', proxyUrl: '', visible: true },
+        { id: 'proxy_7', name: '119.29.131.71',  qrMode: 'image', imgPath: 'images/119.29.131.71.png',  proxyUrl: '', visible: true },
+        { id: 'proxy_8', name: '43.136.47.17',   qrMode: 'image', imgPath: 'images/43.136.47.17.jpg',   proxyUrl: '', visible: true }
+    ];
+    const TEMPLATE_COMPANY_WIFI_LIST = [
+        { id: 'company_1', name: '1302-5G',     qrMode: 'image', imgPath: 'images/1302-5G.jpg',     ssid: '1302-5G',     pwd: '', qrText: '', visible: true },
+        { id: 'company_2', name: '1603-5G',     qrMode: 'image', imgPath: 'images/1603-5G.jpg',     ssid: '1603-5G',     pwd: '', qrText: '', visible: true },
+        { id: 'company_3', name: '1603-2-5G',   qrMode: 'image', imgPath: 'images/1603-2-5G.jpg',   ssid: '1603-2-5G',   pwd: '', qrText: '', visible: true },
+        { id: 'company_4', name: 'MCN-1304-5G', qrMode: 'image', imgPath: 'images/MCN-1304-5G.jpg', ssid: 'MCN-1304-5G', pwd: '', qrText: '', visible: true }
+    ];
+    const TEMPLATE_NET_TEST_LIST = [
+        { id: 'net_dnsleak', name: 'DNSLeakTest', qrMode: 'link', url: 'dnsleaktest.com', imgPath: '', desc: '测 IP DNS 泄漏', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'net_whoer',   name: 'Whoer',       qrMode: 'link', url: 'whoer.com',       imgPath: '', desc: '综合匿名度评分，看 IP 干不干净、WebRTC/DNS 泄不泄漏', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'net_ping0',   name: 'Ping0',       qrMode: 'link', url: 'ping0.cc',        imgPath: '', desc: '测 IP 纯净度/风险分', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'net_ipinfo',  name: 'IPinfo',      qrMode: 'link', url: 'ipinfo.io',       imgPath: '', desc: '查 IP 地理位置、ASN、时区、运营商', visible: true, helpType: '', helpImg: '', helpText: '' }
+    ];
+    const TEMPLATE_APP_STORE_LIST = [
+        { id: 'app_gmail',        name: 'Gmail',        icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/gmail-email-by-google/id422689480',                           imgPath: '', desc: 'Google 官方邮箱客户端，支持多账号管理与实时邮件通知', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_wetype',       name: '微信输入法',   icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/%E5%BE%AE%E4%BF%A1%E8%BE%93%E5%85%A5%E6%B3%95/id1618175312', imgPath: '', desc: '腾讯官方出品输入法，支持跨设备剪贴板同步与智能词库', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_x',            name: 'X',            icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/x/id333903271',                                               imgPath: '', desc: '原 Twitter 官方客户端，全球实时资讯与跨境社媒运营必备', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_egern',        name: 'Egern',        icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/egern/id1616105820',                                          imgPath: '', desc: 'iOS 高性能网络代理客户端，支持 Hysteria2 / SOCKS5 扫码一键添加', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_deltachat',    name: 'Delta Chat',   icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/delta-chat/id1459523234?l=zh-Hant-TW',                        imgPath: '', desc: '基于邮箱协议的端到端加密聊天工具，安全稳定无需手机号', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_threads',      name: 'Threads',      icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/threads/id6446901002',                                        imgPath: '', desc: 'Meta 旗下文字社交平台，与 Instagram 账号一键互通', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_tiktok',       name: 'TikTok',       icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/tiktok-videos-shop-live/id835599320',                         imgPath: '', desc: '海外版抖音短视频与直播商城（建议代理纯净度≥90%后打开）', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_facebook',     name: 'Facebook',     icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/facebook/id284882215',                                        imgPath: '', desc: 'Meta 核心社交平台，支持公共主页、广告投放与社群运营', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_instagram',    name: 'Instagram',    icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/instagram/id389801252',                                       imgPath: '', desc: '图片与 Reels 短视频社交平台，品牌视觉与私域引流核心阵地', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'app_shadowrocket', name: 'Shadowrocket', icon: '', qrMode: 'link', url: 'https://apps.apple.com/us/app/shadowrocket/id932747118?l=zh-Hant-TW',                       imgPath: '', desc: 'iOS 经典小火箭代理工具，支持多协议节点扫码导入与分流', visible: true, helpType: '', helpImg: '', helpText: '' }
+    ];
+    const TEMPLATE_PC_SOFT_LIST = [
+        { id: 'pc_clash',      name: 'Clash Verge Rev', url: 'https://github.com/clash-verge-rev/clash-verge-rev/releases', desc: '桌面端主流代理分流客户端，内置 Clash.Meta 内核，支持订阅与TUN模式', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_bitbrowser', name: 'BitBrowser',      url: 'https://www.bitbrowser.cn/download',                          desc: '比特指纹浏览器，支持多账号独立防关联环境隔离与团队协同', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_chrome',     name: 'Google Chrome',   url: 'https://www.google.com/chrome/',                              desc: 'Google 官方网页浏览器，跨境业务与扩展插件标准运行环境', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_capcut',     name: '剪映',            url: 'https://www.capcut.cn/',                                      desc: '全功能视频剪辑工具，支持智能字幕识别、AI配音与短视频素材库', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_potplayer',  name: 'PotPlayer',       url: 'https://potplayer.tv/?lang=zh_CN',                            desc: 'Windows 高性能全格式多媒体播放器，硬件加速解码、无广告', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_honeyview',  name: 'Honeyview',       url: 'https://honeyview.net/',                                      desc: '极速轻量级图片查看器，支持多种图片格式与压缩包免解压预览', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_icaros',     name: 'Icaros',          url: 'https://github.com/Xanashi/Icaros/releases',                  desc: 'Windows 资源管理器视频缩略图补全工具，支持各类格式封面预览', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_everything', name: 'Everything',      url: 'https://www.voidtools.com/zh-cn/downloads/',                  desc: '毫秒级本地文件搜索神器，输入关键词瞬间定位全盘文件与素材', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_sogou',      name: '搜狗输入法',      url: 'https://shurufa.sogou.com/',                                  desc: '中文智能拼音输入法，支持丰富细胞词库与快捷短语同步', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_dingtalk',   name: '钉钉',            url: 'https://www.dingtalk.com/',                                   desc: '团队协同办公与即时通讯平台，支持文档协作、音视频会议与考勤', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_deltachat',  name: 'Delta Chat',      url: 'https://delta.chat/zh_CN/download',                           desc: '电脑端加密通讯客户端，支持与手机端扫码同步多端加密消息', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_i4',         name: 'i4',              url: 'https://i4.cn/',                                              desc: '爱思助手电脑版，iOS 设备验机、素材导入导出与刷机备份工具', visible: true, helpType: '', helpImg: '', helpText: '' },
+        { id: 'pc_yuque',      name: '语雀文档',        url: 'https://www.yuque.com/u37186489/tgrg5b/hbeqd8mhfr2f6p2t',     desc: '团队业务知识库与标准SOP操作文档中心，点击直达查阅', visible: true, helpType: '', helpImg: '', helpText: '' }
+    ];
+
+    /**
+     * 空内容结构（当后台未返回卡片或 fetch 失败时使用，卡片列表全部为空，绝不回退硬编码旧卡片）
+     */
+    function emptyContent() {
         const secBlocks = normalizeSectionBlocks(null, null);
         return {
             version: 1,
@@ -473,30 +526,15 @@
             wifiTip: secBlocks.wifi.tip,
             netTestTip: secBlocks.netTest.tip,
             sectionBlocks: secBlocks,
-            baseWifiCards: normalizeBaseWifiCards((typeof baseWifiCards !== 'undefined' ? baseWifiCards : []).map(c => {
-                const o = Object.assign({}, c);
-                // @Ads 默认带图片教程（后台可改/可删）
-                if (o.id === 'ads') {
-                    o.helpType = o.helpType || 'image';
-                    o.helpImg = o.helpImg || 'images/@Ads tutorial.jpg';
-                }
-                return o;
-            })),
-            proxyList: normalizeProxyCards(typeof proxyList !== 'undefined' ? proxyList : []),
-            companyWifiList: normalizeCompanyWifiCards(typeof companyWifiList !== 'undefined' ? companyWifiList : []),
-            netTestList: normalizeNetTestCards(DEFAULT_NET_TEST_LIST),
-            appStoreList: normalizeAppStoreCards(DEFAULT_APP_STORE_LIST),
-            pcSoftList: normalizePcSoftCards(DEFAULT_PC_SOFT_LIST),
+            baseWifiCards: [],
+            proxyList: [],
+            companyWifiList: [],
+            netTestList: [],
+            appStoreList: [],
+            pcSoftList: [],
             secretZoneList: [],
             secretZoneEnabled: false,
-            music: normalizeMusicTracks((typeof musicFiles !== 'undefined' ? musicFiles : []).map(n => ({
-                name: String(n).replace(/\.[^/.]+$/, ''),
-                sourceMode: 'link',
-                url: 'music/' + n,
-                linkUrl: 'music/' + n,
-                uploadUrl: '',
-                cover: ''
-            }))),
+            music: [],
             musicEnabled: true,
             background: {
                 mode: 'auto',
@@ -512,18 +550,41 @@
         };
     }
 
-    function merge(defaults, remote) {
-        const out = Object.assign({}, defaults);
+    /** 仅供后台 CMS 在云端完全为空时手动点击「初始化默认卡片模板」使用 */
+    window.getInitialTemplateContent = function () {
+        const base = emptyContent();
+        base.baseWifiCards = normalizeBaseWifiCards(TEMPLATE_BASE_WIFI_CARDS);
+        base.proxyList = normalizeProxyCards(TEMPLATE_PROXY_LIST);
+        base.companyWifiList = normalizeCompanyWifiCards(TEMPLATE_COMPANY_WIFI_LIST);
+        base.netTestList = normalizeNetTestCards(TEMPLATE_NET_TEST_LIST);
+        base.appStoreList = normalizeAppStoreCards(TEMPLATE_APP_STORE_LIST);
+        base.pcSoftList = normalizePcSoftCards(TEMPLATE_PC_SOFT_LIST);
+        base.music = normalizeMusicTracks((typeof musicFiles !== 'undefined' ? musicFiles : []).map(n => ({
+            name: String(n).replace(/\.[^/.]+$/, ''),
+            sourceMode: 'link',
+            url: 'music/' + n,
+            linkUrl: 'music/' + n,
+            uploadUrl: '',
+            cover: ''
+        })));
+        return base;
+    };
+
+    /**
+     * 严格以后台返回的 remote 对象构建站点内容（不合并任何硬编码默认卡片）
+     */
+    function buildRemoteContent(remote) {
+        const out = emptyContent();
         if (!remote || typeof remote !== 'object') return out;
-        if (Array.isArray(remote.baseWifiCards)) out.baseWifiCards = normalizeBaseWifiCards(remote.baseWifiCards);
-        if (Array.isArray(remote.companyWifiList)) out.companyWifiList = normalizeCompanyWifiCards(remote.companyWifiList);
-        if (Array.isArray(remote.proxyList)) out.proxyList = normalizeProxyCards(remote.proxyList);
-        if (Array.isArray(remote.netTestList)) out.netTestList = normalizeNetTestCards(remote.netTestList);
-        if (Array.isArray(remote.appStoreList)) out.appStoreList = normalizeAppStoreCards(remote.appStoreList);
-        if (Array.isArray(remote.pcSoftList)) out.pcSoftList = normalizePcSoftCards(remote.pcSoftList);
-        if (Array.isArray(remote.secretZoneList)) out.secretZoneList = normalizeSecretZoneCards(remote.secretZoneList);
+        out.baseWifiCards = Array.isArray(remote.baseWifiCards) ? normalizeBaseWifiCards(remote.baseWifiCards) : [];
+        out.companyWifiList = Array.isArray(remote.companyWifiList) ? normalizeCompanyWifiCards(remote.companyWifiList) : [];
+        out.proxyList = Array.isArray(remote.proxyList) ? normalizeProxyCards(remote.proxyList) : [];
+        out.netTestList = Array.isArray(remote.netTestList) ? normalizeNetTestCards(remote.netTestList) : [];
+        out.appStoreList = Array.isArray(remote.appStoreList) ? normalizeAppStoreCards(remote.appStoreList) : [];
+        out.pcSoftList = Array.isArray(remote.pcSoftList) ? normalizePcSoftCards(remote.pcSoftList) : [];
+        out.secretZoneList = Array.isArray(remote.secretZoneList) ? normalizeSecretZoneCards(remote.secretZoneList) : [];
         if (typeof remote.secretZoneEnabled === 'boolean') out.secretZoneEnabled = remote.secretZoneEnabled;
-        if (Array.isArray(remote.music)) out.music = normalizeMusicTracks(remote.music);
+        out.music = Array.isArray(remote.music) ? normalizeMusicTracks(remote.music) : [];
         ['wifiTitle', 'wifiTip', 'netTestTip'].forEach(k => {
             if (typeof remote[k] === 'string') out[k] = remote[k];
         });
@@ -533,20 +594,129 @@
         out.netTestTip = out.sectionBlocks.netTest.tip;
         if (typeof remote.musicEnabled === 'boolean') out.musicEnabled = remote.musicEnabled;
         if (remote.background && typeof remote.background === 'object') {
-            out.background = Object.assign({}, defaults.background, remote.background);
+            out.background = Object.assign({}, out.background, remote.background);
             out.background.videoEnabled = !!out.background.videoEnabled;
             out.background.dayVideoUrl = String(out.background.dayVideoUrl || '');
             out.background.nightVideoUrl = String(out.background.nightVideoUrl || '');
         }
         if (remote.effects && typeof remote.effects === 'object') {
-            out.effects = Object.assign({}, defaults.effects, remote.effects);
+            out.effects = Object.assign({}, out.effects, remote.effects);
         }
-        if (typeof remote.guideHtml === 'string' && remote.guideHtml.trim()) out.guideHtml = remote.guideHtml;
+        if (typeof remote.guideHtml === 'string' && remote.guideHtml.trim()) {
+            out.guideHtml = remote.guideHtml;
+        }
         return out;
     }
+    window.buildRemoteContent = buildRemoteContent;
+
+    /**
+     * 精简待保存到云端的 SITE_CONTENT，剔除内置大体积 SVG Data URI 和未修改的默认大段文本，
+     * 使 JSON 体积从 ~22KB 降至 ~2.6KB，彻底避免 Google Apps Script PropertiesService 单键 9KB 限制报错。
+     */
+    window.compactSiteContentForSave = function (rawState) {
+        const d = buildRemoteContent(rawState || {});
+        const stripCommon = (item) => {
+            const o = Object.assign({}, item);
+            if (!o.helpType) {
+                delete o.helpType;
+                delete o.helpImg;
+                delete o.helpText;
+            }
+            if (isCardVisible(o)) {
+                delete o.visible;
+            } else {
+                o.visible = false;
+            }
+            return o;
+        };
+        const compactBlocks = {};
+        Object.keys(d.sectionBlocks || {}).forEach(k => {
+            const b = d.sectionBlocks[k] || {};
+            const def = DEFAULT_SECTION_BLOCKS[k] || {};
+            const diff = {};
+            if (typeof b.title === 'string' && b.title !== def.title) diff.title = b.title;
+            if (typeof b.tip === 'string' && b.tip !== def.tip) diff.tip = b.tip;
+            if (Boolean(b.helpEnabled) !== Boolean(def.helpEnabled)) diff.helpEnabled = Boolean(b.helpEnabled);
+            const defActiveType = def.helpEnabled ? def.helpType : '';
+            if (b.helpType !== defActiveType) diff.helpType = b.helpType;
+            if (b.helpImg && b.helpImg !== def.helpImg) diff.helpImg = b.helpImg;
+            if (b.helpText && b.helpText !== def.helpText) diff.helpText = b.helpText;
+            if (Object.keys(diff).length > 0) compactBlocks[k] = diff;
+        });
+        const out = {
+            version: 1,
+            baseWifiCards: (d.baseWifiCards || []).map(c => {
+                const o = stripCommon(c);
+                if (o.qrMode === 'image') delete o.qrMode;
+                if (!o.wifiString) delete o.wifiString;
+                if (!o.tag) delete o.tag;
+                if (!o.large) delete o.large;
+                if (!o.danger) delete o.danger;
+                if (!o.fx || o.fx === 'default') delete o.fx;
+                return o;
+            }),
+            proxyList: (d.proxyList || []).map(c => {
+                const o = stripCommon(c);
+                if (o.qrMode === 'image') delete o.qrMode;
+                if (!o.proxyUrl) delete o.proxyUrl;
+                if (!o.firstOnlineAt || o.firstOnlineAt === '2026/10/22 10:00:00') delete o.firstOnlineAt;
+                if (o.statusOverride === 'auto') delete o.statusOverride;
+                if (!o.manualOverride) delete o.manualOverride;
+                if (!o.manualDownAt) delete o.manualDownAt;
+                if (!o.manualNote) delete o.manualNote;
+                return o;
+            }),
+            companyWifiList: (d.companyWifiList || []).map(c => {
+                const o = stripCommon(c);
+                if (o.qrMode === 'image') delete o.qrMode;
+                if (!o.ssid || o.ssid === o.name) delete o.ssid;
+                if (!o.pwd) delete o.pwd;
+                if (!o.qrText) delete o.qrText;
+                return o;
+            }),
+            netTestList: (d.netTestList || []).map(c => {
+                const o = stripCommon(c);
+                if (o.qrMode === 'link') delete o.qrMode;
+                if (!o.imgPath) delete o.imgPath;
+                return o;
+            }),
+            appStoreList: (d.appStoreList || []).map(c => {
+                const o = stripCommon(c);
+                if (o.qrMode === 'link') delete o.qrMode;
+                if (window.isBuiltinAppIcon(o.icon)) delete o.icon;
+                if (!o.imgPath) delete o.imgPath;
+                return o;
+            }),
+            pcSoftList: (d.pcSoftList || []).map(c => stripCommon(c)),
+            secretZoneList: (d.secretZoneList || []).map(c => {
+                const o = stripCommon(c);
+                if (o.qrMode === 'link') delete o.qrMode;
+                if (window.isBuiltinAppIcon(o.icon)) delete o.icon;
+                if (!o.imgPath) delete o.imgPath;
+                return o;
+            }),
+            secretZoneEnabled: !!d.secretZoneEnabled,
+            sectionBlocks: compactBlocks,
+            music: (d.music || []).map(m => {
+                const o = Object.assign({}, m);
+                if (o.sourceMode === 'link') delete o.sourceMode;
+                if (o.linkUrl === o.url) delete o.linkUrl;
+                if (!o.uploadUrl) delete o.uploadUrl;
+                if (!o.cover) delete o.cover;
+                return o;
+            }),
+            musicEnabled: d.musicEnabled !== false,
+            background: d.background || {},
+            effects: d.effects || { pwdFx: 'default', cardHover: true },
+            guideHtml: (typeof guideTemplateHTML !== 'undefined' && d.guideHtml === guideTemplateHTML)
+                ? ''
+                : String(d.guideHtml || '')
+        };
+        return out;
+    };
 
     window.getSiteContent = function () {
-        return window.SiteContent.data || defaultContent();
+        return window.SiteContent.data || emptyContent();
     };
 
     /* ---------------- 动态视频背景与声音控制 ---------------- */
@@ -714,41 +884,31 @@
         const d = window.SiteContent.data;
         if (!d) return;
 
-        if (Array.isArray(d.baseWifiCards)) {
-            d.baseWifiCards = normalizeBaseWifiCards(d.baseWifiCards);
-            baseWifiCards = d.baseWifiCards;
-            try {
-                const visibleIds = d.baseWifiCards.filter(c => c && c.visible !== false).map(c => c.id);
-                localStorage.setItem('cfgShowWifiCards', visibleIds.join(','));
-            } catch (e) {}
+        d.baseWifiCards = Array.isArray(d.baseWifiCards) ? normalizeBaseWifiCards(d.baseWifiCards) : [];
+        baseWifiCards = d.baseWifiCards;
+        if (window.SiteConfig) {
+            window.SiteConfig.cfgShowWifiCards = d.baseWifiCards.filter(c => isCardVisible(c)).map(c => c.id).join(',');
         }
-        if (Array.isArray(d.proxyList)) {
-            d.proxyList = normalizeProxyCards(d.proxyList);
-            proxyList = d.proxyList;
-        }
-        if (Array.isArray(d.companyWifiList)) {
-            d.companyWifiList = normalizeCompanyWifiCards(d.companyWifiList);
-            companyWifiList = d.companyWifiList;
-        }
-        if (Array.isArray(d.netTestList)) {
-            d.netTestList = normalizeNetTestCards(d.netTestList);
-            window.netTestList = d.netTestList;
-        }
-        if (Array.isArray(d.appStoreList)) {
-            d.appStoreList = normalizeAppStoreCards(d.appStoreList);
-            window.appStoreList = d.appStoreList;
-        }
-        if (Array.isArray(d.pcSoftList)) {
-            d.pcSoftList = normalizePcSoftCards(d.pcSoftList);
-            window.pcSoftList = d.pcSoftList;
-        }
-        if (Array.isArray(d.secretZoneList)) {
-            d.secretZoneList = normalizeSecretZoneCards(d.secretZoneList);
-            window.secretZoneList = d.secretZoneList;
-        }
-        if (Array.isArray(d.music)) {
-            d.music = normalizeMusicTracks(d.music);
-        }
+
+        d.proxyList = Array.isArray(d.proxyList) ? normalizeProxyCards(d.proxyList) : [];
+        proxyList = d.proxyList;
+
+        d.companyWifiList = Array.isArray(d.companyWifiList) ? normalizeCompanyWifiCards(d.companyWifiList) : [];
+        companyWifiList = d.companyWifiList;
+
+        d.netTestList = Array.isArray(d.netTestList) ? normalizeNetTestCards(d.netTestList) : [];
+        window.netTestList = d.netTestList;
+
+        d.appStoreList = Array.isArray(d.appStoreList) ? normalizeAppStoreCards(d.appStoreList) : [];
+        window.appStoreList = d.appStoreList;
+
+        d.pcSoftList = Array.isArray(d.pcSoftList) ? normalizePcSoftCards(d.pcSoftList) : [];
+        window.pcSoftList = d.pcSoftList;
+
+        d.secretZoneList = Array.isArray(d.secretZoneList) ? normalizeSecretZoneCards(d.secretZoneList) : [];
+        window.secretZoneList = d.secretZoneList;
+
+        d.music = Array.isArray(d.music) ? normalizeMusicTracks(d.music) : [];
         d.secretZoneEnabled = !!d.secretZoneEnabled;
         d.sectionBlocks = normalizeSectionBlocks(d.sectionBlocks, d);
         d.wifiTitle = d.sectionBlocks.wifi.title;
@@ -805,10 +965,15 @@
         document.body.classList.toggle('no-card-hover', fx.cardHover === false);
 
         const guideBox = document.getElementById('guideContentContainer');
-        if (guideBox && d.guideHtml) {
-            guideBox.innerHTML = window.renderGuideContent
-                ? window.renderGuideContent(d.guideHtml)
-                : d.guideHtml;
+        if (guideBox) {
+            const rawGuide = (typeof d.guideHtml === 'string' && d.guideHtml.trim())
+                ? d.guideHtml
+                : (typeof guideTemplateHTML !== 'undefined' ? guideTemplateHTML : '');
+            if (rawGuide) {
+                guideBox.innerHTML = window.renderGuideContent
+                    ? window.renderGuideContent(rawGuide)
+                    : rawGuide;
+            }
         }
 
         const player = document.querySelector('.music-player-widget');
@@ -819,74 +984,65 @@
         if (typeof window.renderBatchExtraSections === 'function') window.renderBatchExtraSections();
         if (typeof applyWifiLayoutConfig === 'function') applyWifiLayoutConfig();
         if (typeof window.createParticles === 'function') window.createParticles();
-        if (typeof loadTrack === 'function') loadTrack(0);
+        if (typeof loadTrack === 'function') loadTrack(0, true);
 
         // 后台管理台已打开且本地没有未保存修改时，同步刷新为最新远程内容
         const cmsBox = document.getElementById('cmsContainer');
-        if (cmsBox && cmsBox.innerHTML.trim() && typeof renderCmsPanel === 'function' && cmsDirty === false) {
-            cmsState = JSON.parse(JSON.stringify(d));
-            renderCmsPanel();
+        if (cmsBox && cmsBox.innerHTML.trim() && typeof renderCmsPanel === 'function' && typeof cmsDirty !== 'undefined' && cmsDirty === false) {
+            cmsState = window.SiteContent.remote ? JSON.parse(JSON.stringify(d)) : null;
+            if (typeof injectAdminControls === 'function' && document.getElementById('adminControlBox')) {
+                injectAdminControls();
+            } else {
+                renderCmsPanel();
+            }
         }
     };
 
     function load() {
-        const url = apiUrl('?action=content&t=' + Date.now());
         const done = () => { window.SiteContent.loaded = true; window.applySiteContent(); };
+        const base = apiUrl('?action=content');
 
-        // 先应用本地已保存或缓存的内容，避免首屏闪烁
-        const initialLoc = localOverride();
-        if (initialLoc) {
-            window.SiteContent.data = merge(defaultContent(), initialLoc);
-            window.applySiteContent();
-        } else {
-            try {
-                const cached = localStorage.getItem(CACHE_KEY);
-                if (cached) {
-                    window.SiteContent.data = merge(defaultContent(), JSON.parse(cached));
-                    window.applySiteContent();
-                }
-            } catch (e) {}
-        }
-
-        if (!url) {
-            if (!window.SiteContent.data) window.SiteContent.data = defaultContent();
+        if (!base) {
+            window.SiteContent.data = emptyContent();
+            window.SiteContent.remote = false;
+            window.SiteContent.fetchFailed = true;
             done();
             return Promise.resolve();
         }
 
-        return fetch(url, { cache: 'no-store' })
-            .then(r => r.json())
-            .then(j => {
-                const remote = j && j.ok && j.content ? j.content : null;
-                const loc = localOverride();
-                if (loc) {
-                    // 本机有尚未同步到云端或本机保存的内容时，优先保持本机保存结果
-                    window.SiteContent.data = merge(defaultContent(), loc);
-                    window.SiteContent.remote = !!(remote && Object.keys(remote).length > 0);
-                } else if (remote && Object.keys(remote).length > 0) {
-                    // 云端有内容：以云端为准
-                    window.SiteContent.data = merge(defaultContent(), remote);
-                    window.SiteContent.remote = true;
-                } else {
-                    window.SiteContent.data = merge(defaultContent(), remote);
-                    window.SiteContent.remote = false;
-                }
-                try { localStorage.setItem(CACHE_KEY, JSON.stringify(window.SiteContent.data)); } catch (e) {}
-                done();
-            })
-            .catch(() => {
-                const loc = localOverride();
-                if (loc) {
-                    window.SiteContent.data = merge(defaultContent(), loc);
-                } else {
-                    try {
-                        const cached = localStorage.getItem(CACHE_KEY);
-                        if (cached) window.SiteContent.data = merge(defaultContent(), JSON.parse(cached));
-                    } catch (e) {}
-                    if (!window.SiteContent.data) window.SiteContent.data = defaultContent();
-                }
-                done();
-            });
+        const attemptFetch = (retryCount) => {
+            const url = apiUrl('?action=content&_t=' + Date.now());
+            return fetch(url, { cache: 'no-store' })
+                .then(r => r.json())
+                .then(j => {
+                    const remote = (j && j.ok && j.content && typeof j.content === 'object') ? j.content : null;
+                    if (remote && Object.keys(remote).length > 0) {
+                        window.SiteContent.data = buildRemoteContent(remote);
+                        window.SiteContent.remote = true;
+                        window.SiteContent.fetchFailed = false;
+                    } else if (!window.SiteContent.remote) {
+                        // 云端返回为空或未初始化时，严格保持空卡片列表，不回退硬编码默认卡片
+                        window.SiteContent.data = emptyContent();
+                        window.SiteContent.remote = false;
+                        window.SiteContent.fetchFailed = !(j && j.ok);
+                    }
+                    done();
+                })
+                .catch(() => {
+                    if (retryCount < 1) {
+                        return new Promise(res => setTimeout(res, 600)).then(() => attemptFetch(retryCount + 1));
+                    }
+                    // fetch 失败时严禁回退到硬编码旧数据或 localStorage 缓存
+                    if (!window.SiteContent.remote) {
+                        window.SiteContent.data = emptyContent();
+                        window.SiteContent.remote = false;
+                        window.SiteContent.fetchFailed = true;
+                    }
+                    done();
+                });
+        };
+
+        return attemptFetch(0);
     }
 
     /** 统一的上报通道：readResponse=true 时读取 JSON 返回（后台管理用） */
@@ -896,28 +1052,14 @@
         return fetch(url, {
             method: 'POST',
             mode: readResponse ? 'cors' : 'no-cors',
+            cache: 'no-store',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify(payload)
         }).then(r => (readResponse ? r.json() : { ok: true }));
     };
 
     /* ---------------- 前置代理自动探测状态加载器与判定 ---------------- */
-    const PROBE_CACHE_KEY = 'mnProbeStateCache';
-
-    function loadCachedProbeState() {
-        try {
-            const raw = localStorage.getItem(PROBE_CACHE_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (parsed && typeof parsed === 'object' && parsed.items) {
-                    return { updatedAt: parsed.updatedAt || '', items: parsed.items || {} };
-                }
-            }
-        } catch (e) {}
-        return { updatedAt: '', items: {} };
-    }
-
-    window.probeState = loadCachedProbeState();
+    window.probeState = { updatedAt: '', items: {} };
 
     function normalizeProbePayload(probeObj) {
         const out = { updatedAt: '', items: {} };
@@ -1116,9 +1258,9 @@
         };
     };
 
-    /** 拉取云端探测状态，每 60 秒轮询，失败自动回退上次缓存且不报错 */
+    /** 拉取云端探测状态，每 60 秒轮询，实时从后台获取最新状态，不使用 localStorage 缓存 */
     window.fetchProbeState = function () {
-        const url = apiUrl('?action=probe&t=' + Date.now());
+        const url = apiUrl('?action=probe&_t=' + Date.now());
         if (!url) {
             if (typeof window.updateProxyCardsInPlace === 'function') window.updateProxyCardsInPlace();
             return Promise.resolve(window.probeState);
@@ -1126,14 +1268,13 @@
         return fetch(url, { cache: 'no-store' })
             .then(r => r.json())
             .then(j => {
-                if (j && j.probeIntervalMin) {
-                    try { localStorage.setItem('cfgProbeIntervalMin', String(j.probeIntervalMin)); } catch (e) {}
+                if (j && j.probeIntervalMin && window.SiteConfig) {
+                    window.SiteConfig.cfgProbeIntervalMin = String(j.probeIntervalMin);
                 }
                 if (j && j.ok && j.probe && typeof j.probe === 'object') {
                     const normalized = normalizeProbePayload(j.probe);
                     if (Object.keys(normalized.items).length > 0 || normalized.updatedAt) {
                         window.probeState = normalized;
-                        try { localStorage.setItem(PROBE_CACHE_KEY, JSON.stringify(window.probeState)); } catch (e) {}
                     }
                 }
                 if (typeof window.updateProxyCardsInPlace === 'function') {
@@ -1144,7 +1285,6 @@
                 return window.probeState;
             })
             .catch(() => {
-                window.probeState = loadCachedProbeState();
                 if (typeof window.updateProxyCardsInPlace === 'function') window.updateProxyCardsInPlace();
                 return window.probeState;
             });

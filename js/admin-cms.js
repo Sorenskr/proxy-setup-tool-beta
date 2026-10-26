@@ -37,18 +37,8 @@ const CMS_SECTIONS = [
     { id: 'cms-sec-secret',   key: 'secret',   num: 11, short: '🔒隐藏专区', title: '🔒 填写 IP 报表页 · 隐藏专区（默认隐藏，总开关控制）' }
 ];
 
-// 初始化全局卡片数据的 visible 默认值（默认 true），并挂载日夜切换时的视频背景联动
-(function initDefaultVisibleAndVideoHook() {
-    [typeof baseWifiCards !== 'undefined' ? baseWifiCards : null,
-     typeof proxyList !== 'undefined' ? proxyList : null,
-     typeof companyWifiList !== 'undefined' ? companyWifiList : null].forEach(arr => {
-        if (Array.isArray(arr)) {
-            arr.forEach(item => {
-                if (item && item.visible === undefined) item.visible = true;
-            });
-        }
-    });
-
+// 挂载日夜切换时的视频背景联动（不再对硬编码卡片强行塞入 visible=true）
+(function initThemeVideoHook() {
     const origApplyTheme = window.applyTheme;
     window.applyTheme = function () {
         if (typeof origApplyTheme === 'function') origApplyTheme.apply(this, arguments);
@@ -61,6 +51,12 @@ const CMS_SECTIONS = [
         if (typeof window.applyBgVideo === 'function') window.applyBgVideo();
     };
 })();
+
+function isCmsCardVisible(item) {
+    if (typeof window.isCardVisible === 'function') return window.isCardVisible(item);
+    if (!item || typeof item !== 'object') return false;
+    return item.visible !== false && item.visible !== 'false' && item.visible !== 0 && item.visible !== '0' && item.hidden !== true;
+}
 
 /**
  * 状态文案辅助
@@ -316,9 +312,10 @@ window.renderStaticCards = function () {
     if (proxyGrid) proxyGrid.innerHTML = '';
     if (companyGrid) companyGrid.innerHTML = '';
 
-    const pList = typeof proxyList !== 'undefined' && Array.isArray(proxyList) ? proxyList : [];
+    const siteData = (window.SiteContent && window.SiteContent.data) ? window.SiteContent.data : null;
+    const pList = (siteData && Array.isArray(siteData.proxyList)) ? siteData.proxyList : [];
     pList.forEach((item, idx) => {
-        if (!item || item.visible === false) return;
+        if (!isCmsCardVisible(item)) return;
         if (!proxyGrid) return;
 
         const st = typeof window.getProxyStatus === 'function'
@@ -377,9 +374,9 @@ window.renderStaticCards = function () {
         }
     });
 
-    const cList = typeof companyWifiList !== 'undefined' && Array.isArray(companyWifiList) ? companyWifiList : [];
+    const cList = (siteData && Array.isArray(siteData.companyWifiList)) ? siteData.companyWifiList : [];
     cList.forEach((item, idx) => {
-        if (!item || item.visible === false) return;
+        if (!isCmsCardVisible(item)) return;
         if (!companyGrid) return;
 
         const isLinkMode = item.qrMode === 'link';
@@ -433,14 +430,12 @@ window.renderNetTestCards = function () {
     const grid = document.getElementById('netTestGrid');
     if (!grid) return;
 
-    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
-    const list = (content && Array.isArray(content.netTestList))
-        ? content.netTestList
-        : (Array.isArray(window.netTestList) ? window.netTestList : []);
+    const siteData = (window.SiteContent && window.SiteContent.data) ? window.SiteContent.data : null;
+    const list = (siteData && Array.isArray(siteData.netTestList)) ? siteData.netTestList : [];
 
     grid.innerHTML = '';
     list.forEach((item, idx) => {
-        if (!item || item.visible === false) return;
+        if (!isCmsCardVisible(item)) return;
         const { shortUrl, fullUrl } = normalizeNetTestUrlPair(item.url);
         const isImgMode = item.qrMode === 'image' && Boolean(String(item.imgPath || '').trim());
         if (!shortUrl && !isImgMode) return;
@@ -529,7 +524,7 @@ function renderQrChipSectionGrid(gridId, listKey, rawList, showIconInChip) {
 
     const list = Array.isArray(rawList) ? rawList : [];
     list.forEach((item, idx) => {
-        if (!item || item.visible === false) return;
+        if (!isCmsCardVisible(item)) return;
         const isImgMode = item.qrMode === 'image' && Boolean(String(item.imgPath || '').trim());
         const { fullUrl } = normalizeNetTestUrlPair(item.url);
         if (!isImgMode && !fullUrl && !item.name) return;
@@ -623,7 +618,7 @@ function renderPcSoftSectionGrid(rawList) {
 
     const list = Array.isArray(rawList) ? rawList : [];
     list.forEach((item, idx) => {
-        if (!item || item.visible === false) return;
+        if (!isCmsCardVisible(item)) return;
         const { fullUrl } = normalizeNetTestUrlPair(item.url);
         if (!item.name && !fullUrl) return;
         const showHelp = hasCardHelpEnabled(item);
@@ -665,17 +660,11 @@ function renderPcSoftSectionGrid(rawList) {
 }
 
 window.renderBatchExtraSections = function () {
-    const content = typeof window.getSiteContent === 'function' ? window.getSiteContent() : {};
-    const appList = (content && Array.isArray(content.appStoreList))
-        ? content.appStoreList
-        : (Array.isArray(window.appStoreList) ? window.appStoreList : []);
-    const pcList = (content && Array.isArray(content.pcSoftList))
-        ? content.pcSoftList
-        : (Array.isArray(window.pcSoftList) ? window.pcSoftList : []);
-    const secretList = (content && Array.isArray(content.secretZoneList))
-        ? content.secretZoneList
-        : (Array.isArray(window.secretZoneList) ? window.secretZoneList : []);
-    const secretEnabled = Boolean(content && content.secretZoneEnabled);
+    const siteData = (window.SiteContent && window.SiteContent.data) ? window.SiteContent.data : null;
+    const appList = (siteData && Array.isArray(siteData.appStoreList)) ? siteData.appStoreList : [];
+    const pcList = (siteData && Array.isArray(siteData.pcSoftList)) ? siteData.pcSoftList : [];
+    const secretList = (siteData && Array.isArray(siteData.secretZoneList)) ? siteData.secretZoneList : [];
+    const secretEnabled = Boolean(siteData && siteData.secretZoneEnabled);
 
     // 1. 手机 App 下载（App Store）
     renderQrChipSectionGrid('appStoreGrid', 'appStoreList', appList, true);
@@ -700,11 +689,11 @@ document.addEventListener('click', (e) => {
 });
 
 /**
- * 覆盖前端基础网络卡片渲染：过滤掉 visible === false 的卡片
+ * 覆盖前端基础网络卡片渲染：严格以 SiteContent.data.baseWifiCards 为准，过滤掉 visible === false 的卡片
  */
 window.applyWifiLayoutConfig = function () {
     const softRouterEl = document.getElementById('softRouterSection');
-    const showSoftRouter = (localStorage.getItem('cfgShowSoftRouter') || 'false') === 'true';
+    const showSoftRouter = (window.SiteConfig && window.SiteConfig.cfgShowSoftRouter === 'true');
     if (softRouterEl) softRouterEl.style.display = showSoftRouter ? 'block' : 'none';
     const softRouterKeyEl = document.getElementById('softRouterKey');
     if (softRouterKeyEl && typeof SOFT_ROUTER_KEY !== 'undefined') {
@@ -715,8 +704,11 @@ window.applyWifiLayoutConfig = function () {
     if (!container) return;
     container.innerHTML = '';
 
-    (typeof baseWifiCards !== 'undefined' ? baseWifiCards : []).forEach((card, idx) => {
-        if (!card || card.visible === false) return;
+    const siteData = (window.SiteContent && window.SiteContent.data) ? window.SiteContent.data : null;
+    const wifiCards = (siteData && Array.isArray(siteData.baseWifiCards)) ? siteData.baseWifiCards : [];
+
+    wifiCards.forEach((card, idx) => {
+        if (!isCmsCardVisible(card)) return;
         const cardEl = document.createElement('div');
         cardEl.className = `compact-card ${card.danger ? 'danger-card' : ''} ${card.fx && card.fx !== 'default' ? 'fx-' + card.fx : ''}`;
 
@@ -823,13 +815,15 @@ function normalizeCmsState(state) {
     return state;
 }
 
-/** 前台「基础网络卡片」展示开关同步（存在 localStorage，保存时同步到云端） */
+/** 前台「基础网络卡片」展示开关同步（仅保存在内存并随云端配置下发，不写入 localStorage） */
 function getShownIds() {
-    const raw = localStorage.getItem('cfgShowWifiCards') || '';
-    return raw.split(',').filter(Boolean);
+    const raw = (window.SiteConfig && window.SiteConfig.cfgShowWifiCards) || '';
+    return String(raw).split(',').filter(Boolean);
 }
 function setShownIds(ids) {
-    localStorage.setItem('cfgShowWifiCards', ids.filter(Boolean).join(','));
+    if (window.SiteConfig) {
+        window.SiteConfig.cfgShowWifiCards = (ids || []).filter(Boolean).join(',');
+    }
 }
 
 /** 切换任意分组卡片的 visible 状态（仅标记待保存，随 SAVE_CONTENT 提交） */
@@ -840,7 +834,7 @@ window.cmsToggleVisible = function (group, index, checked) {
     cmsDirty = true;
     item.visible = !!checked;
     if (group === 'baseWifiCards') {
-        setShownIds((cmsState.baseWifiCards || []).filter(c => c && c.visible !== false).map(c => c.id));
+        setShownIds((cmsState.baseWifiCards || []).filter(c => isCmsCardVisible(c)).map(c => c.id));
     }
     renderCmsPanel();
 };
@@ -1056,7 +1050,7 @@ function cmsWrapSection(sec, bodyHtml, extraBadgeHtml) {
 function cmsVisibleStatBadge(group) {
     const list = (cmsState && cmsState[group]) || [];
     const total = list.length;
-    const visCount = list.filter(item => item && item.visible !== false).length;
+    const visCount = list.filter(item => isCmsCardVisible(item)).length;
     const hidCount = total - visCount;
     return `<span class="cms-sec-stat">显示 ${visCount} / 共 ${total}${hidCount > 0 ? `（已隐藏 ${hidCount}）` : ''}</span>`;
 }
@@ -1066,8 +1060,17 @@ function cmsVisibleStatBadge(group) {
 function renderCmsPanel() {
     const box = document.getElementById('cmsContainer');
     if (!box) return;
-    if (!cmsState) cmsState = normalizeCmsState(clone(window.getSiteContent()));
-    else normalizeCmsState(cmsState);
+    if (!cmsState) {
+        if (window.SiteContent && window.SiteContent.loaded && !window.SiteContent.remote && !window.SiteContent.fetchFailed && typeof window.getInitialTemplateContent === 'function') {
+            // 仅当云端完全为空（从未保存过 SITE_CONTENT）时，在后台编辑器中预载入默认模板供管理员一键保存（前台未保存前绝不渲染）
+            cmsState = normalizeCmsState(clone(window.getInitialTemplateContent()));
+            cmsDirty = true;
+        } else {
+            cmsState = normalizeCmsState(clone(window.getSiteContent()));
+        }
+    } else {
+        normalizeCmsState(cmsState);
+    }
 
     const allCollapsed = CMS_SECTIONS.every(s => !!cmsCollapsed[s.key]);
     const topCollapsed = !!cmsCollapsed.topbar;
@@ -1085,6 +1088,7 @@ function renderCmsPanel() {
                 </div>
                 <div class="cms-actions" onclick="event.stopPropagation()">
                     <button type="button" class="cms-shortcut-hint-btn" onclick="openShortcutModal()" title="点击查看键盘快捷键">⌨️ 快捷键：按 <kbd>?</kbd> 查看</button>
+                    <button type="button" class="btn-ghost" onclick="cmsLoadDefaultTemplate()" title="当云端为空时，一键载入初始预设卡片模板">📥 载入默认模板</button>
                     <button type="button" class="btn-ghost" onclick="cmsReload()">↺ 还原未保存的修改</button>
                     <button type="button" class="btn-primary" onclick="cmsSaveContent()" title="快捷键: Ctrl/Cmd + Alt + S">🚀 保存并全网下发</button>
                     <button type="button" class="cms-collapse-btn" aria-expanded="${topCollapsed ? 'false' : 'true'}" onclick="cmsToggleSection('topbar')">
@@ -1101,7 +1105,7 @@ function renderCmsPanel() {
                     </button>
                 </div>
                 <div class="cms-tip">图片与音乐可上传到 Google Drive（单个 ≤ 8MB），也可直接粘贴外链 URL。列表内切换「显示/隐藏」后请点击「保存并全网下发」（或按 <code>Ctrl/Cmd + Alt + S</code>）生效。</div>
-                ${window.hasCloudApi && window.hasCloudApi() ? '' : '<div class="cms-tip cms-warn">⚠️ 尚未部署云端后台（REPORT_API_URL 为空）：下面的改动可以点「保存」先存到这台设备的浏览器里立即生效，但其他设备看不到；部署好 Google 后端后再保存一次即可全网同步。</div>'}
+                ${window.hasCloudApi && window.hasCloudApi() ? '' : '<div class="cms-tip cms-warn">⚠️ 尚未配置云端后台（REPORT_API_URL 为空）：请先配置 Google Apps Script 接口。</div>'}
                 <div class="cms-tip" id="cmsCloudStatus">${cmsStatusText()}</div>
             </div>
         </div>
@@ -1124,14 +1128,25 @@ function cmsReload() {
     cmsState = normalizeCmsState(clone(window.getSiteContent()));
     cmsDirty = false;
     renderCmsPanel();
-    showToast('↺ 已还原为已保存内容');
+    showToast('↺ 已还原为云端最新已保存内容');
 }
+
+window.cmsLoadDefaultTemplate = function () {
+    if (typeof window.getInitialTemplateContent !== 'function') return;
+    if (!confirm('确认载入初始预设卡片模板到编辑器？\n（载入后可按需隐藏/删除卡片，再点击「🚀 保存并全网下发」写入云端）')) return;
+    cmsState = normalizeCmsState(clone(window.getInitialTemplateContent()));
+    cmsDirty = true;
+    applyRuntimeCmsState(cmsState);
+    renderCmsPanel();
+    showToast('📥 已载入默认模板，请点击「🚀 保存并全网下发」同步到云端');
+};
 
 /** 云端连接状态文案 */
 function cmsStatusText() {
-    if (!window.hasCloudApi || !window.hasCloudApi()) return '📴 云端接口未配置：保存为「仅本机生效」。';
-    if (window.SiteContent && window.SiteContent.remote) return '☁️ 已连接云端：保存后所有设备刷新即可看到。';
-    return '☁️ 云端接口已配置，但云端暂无内容（或旧版后端不支持内容接口）。请先用 `apps-script/Code.gs` 重新部署后端，再保存一次。';
+    if (!window.hasCloudApi || !window.hasCloudApi()) return '📴 云端接口未配置。';
+    if (window.SiteContent && window.SiteContent.remote) return '☁️ 已连接云端：前端严格以云端 SITE_CONTENT 为准（无 localStorage 缓存），保存后所有设备刷新立即生效。';
+    if (window.SiteContent && window.SiteContent.fetchFailed) return '⚠️ 云端 SITE_CONTENT 拉取失败：前端已严格禁止回退本地旧数据，请检查网络或重新部署 Code.gs。';
+    return '☁️ 云端暂无 SITE_CONTENT 内容：如需初始化默认卡片，可点击右上角「📥 载入默认模板」后再点「🚀 保存并全网下发」。';
 }
 
 /* ---------------- 自动归类 & 排序 ---------------- */
@@ -1211,7 +1226,7 @@ window.cmsMove = function (group, index, dir) {
 
 /** 卡片列表项显隐开关控件 */
 function cmsRenderVisSwitch(group, index, item) {
-    const isVisible = item.visible !== false;
+    const isVisible = isCmsCardVisible(item);
     return `
         <label class="cms-vis-switch ${isVisible ? 'is-on' : 'is-off'}" title="直接切换该卡片在前台是否显示（保存后生效）">
             <input type="checkbox" ${isVisible ? 'checked' : ''} onchange="cmsToggleVisible('${group}',${index},this.checked)">
@@ -1272,8 +1287,8 @@ window.cmsQuickProxyStatus = function (index, targetStatus) {
         }
     }
 
-    // 立即应用到本地并同步下发云端
-    applyAndPersistLocal(cmsState);
+    // 立即应用到当前内存状态并同步下发云端
+    applyRuntimeCmsState(cmsState);
     renderCmsPanel();
 
     if (window.hasCloudApi && window.hasCloudApi()) {
@@ -1288,10 +1303,14 @@ window.cmsQuickProxyStatus = function (index, targetStatus) {
                 manualDownAt: item.manualDownAt || '',
                 manualNote: item.manualNote || ''
             }, true).catch(() => {});
-            window.postToApi({ action: 'SAVE_CONTENT', token, content: cmsState }, true)
+            const compactPayload = typeof window.compactSiteContentForSave === 'function'
+                ? window.compactSiteContentForSave(cmsState)
+                : cmsState;
+            window.postToApi({ action: 'SAVE_CONTENT', token, content: compactPayload }, true)
                 .then(j => {
                     if (j && j.ok) {
                         cmsDirty = false;
+                        window.SiteContent.remote = true;
                         renderCmsPanel();
                         if (typeof showToast === 'function') {
                             const label = targetStatus === 'down' ? '🔴 已一键强制标红并全网生效'
@@ -1327,7 +1346,7 @@ window.cmsFillFirstOnlineNow = function (index) {
 let proxyNodesList = [];
 let proxyNodesLoaded = false;
 let proxyNodesLoading = false;
-let probeIntervalMinState = parseInt(localStorage.getItem('cfgProbeIntervalMin') || '15', 10) || 15;
+let probeIntervalMinState = parseInt((window.SiteConfig && window.SiteConfig.cfgProbeIntervalMin) || '15', 10) || 15;
 
 window.cmsLoadProxyNodes = function (showNotice) {
     if (!window.hasCloudApi || !window.hasCloudApi() || typeof REPORT_API_URL === 'undefined' || !REPORT_API_URL) {
@@ -1335,7 +1354,7 @@ window.cmsLoadProxyNodes = function (showNotice) {
     }
     if (proxyNodesLoading) return;
     proxyNodesLoading = true;
-    fetch(REPORT_API_URL + '?action=proxynodes&t=' + Date.now(), { cache: 'no-store' })
+    fetch(REPORT_API_URL + '?action=proxynodes&_t=' + Date.now(), { cache: 'no-store' })
         .then(r => r.json())
         .then(j => {
             proxyNodesLoading = false;
@@ -1343,7 +1362,7 @@ window.cmsLoadProxyNodes = function (showNotice) {
                 proxyNodesLoaded = true;
                 if (j.probeIntervalMin) {
                     probeIntervalMinState = parseInt(j.probeIntervalMin, 10) || 15;
-                    localStorage.setItem('cfgProbeIntervalMin', String(probeIntervalMinState));
+                    if (window.SiteConfig) window.SiteConfig.cfgProbeIntervalMin = String(probeIntervalMinState);
                 }
                 proxyNodesList = Array.isArray(j.nodes) ? j.nodes.map(n => ({
                     id: n.id || '',
@@ -1380,10 +1399,10 @@ window.cmsSaveProbeInterval = function () {
     if (isNaN(val) || val < 1) val = 15;
     if (val > 1440) val = 1440;
     probeIntervalMinState = val;
-    localStorage.setItem('cfgProbeIntervalMin', String(val));
+    if (window.SiteConfig) window.SiteConfig.cfgProbeIntervalMin = String(val);
 
     if (!window.hasCloudApi || !window.hasCloudApi()) {
-        return showToast('💾 已保存在本机（部署云端后可同步）');
+        return showToast('⚠️ 未配置云端接口');
     }
     const token = getAdminToken();
     if (!token) return;
@@ -2168,6 +2187,19 @@ function compressCoverImageToDataUrl(file) {
     });
 }
 
+window.__cmsPendingUploadPromises = window.__cmsPendingUploadPromises || [];
+
+function trackCmsUploadPromise(p) {
+    if (!p || typeof p.then !== 'function') return p;
+    window.__cmsPendingUploadPromises.push(p);
+    const cleanup = () => {
+        const idx = window.__cmsPendingUploadPromises.indexOf(p);
+        if (idx !== -1) window.__cmsPendingUploadPromises.splice(idx, 1);
+    };
+    p.then(cleanup, cleanup);
+    return p;
+}
+
 window.cmsUploadMusicCover = function (input, index) {
     const file = input.files && input.files[0];
     input.value = '';
@@ -2191,12 +2223,12 @@ window.cmsUploadMusicCover = function (input, index) {
         }
         renderCmsPanel();
 
-        // 若已配置 Google 云端且有密钥，同步上传原图/压缩图到 Google Drive 换取云端 URL
+        // 若已配置 Google 云端且有密钥，同步上传原图/压缩图到 Google Drive 换取云端 URL 并自动同步下发
         if (window.hasCloudApi && window.hasCloudApi()) {
             const token = localStorage.getItem(CMS_TOKEN_KEY) || '';
             if (token) {
                 const base64 = String(dataUrl).split(',')[1] || '';
-                window.postToApi({
+                const upPromise = window.postToApi({
                     action: 'UPLOAD_FILE',
                     token,
                     kind: 'image',
@@ -2207,13 +2239,17 @@ window.cmsUploadMusicCover = function (input, index) {
                     if (j && j.ok && j.file && j.file.url) {
                         item.cover = j.file.url;
                         renderCmsPanel();
-                        showToast('✅ 封面图已上传成功，记得点右上角保存下发');
+                        showToast('✅ 封面图已上传云端，正在自动同步歌单...');
+                        if (typeof window.cmsSaveContent === 'function') {
+                            window.cmsSaveContent(true);
+                        }
                     } else {
                         showToast('✅ 封面图已就绪，记得点右上角保存下发');
                     }
                 }).catch(() => {
                     showToast('✅ 封面图已载入本地，记得点右上角保存');
                 });
+                trackCmsUploadPromise(upPromise);
                 return;
             }
         }
@@ -2277,39 +2313,51 @@ window.cmsUploadMusicAudio = function (input, index) {
         return;
     }
 
-    showToast('⏳ 正在上传音频文件到 Google Drive...');
-    const reader = new FileReader();
-    reader.onerror = () => showToast('❌ 音频文件读取失败');
-    reader.onload = () => {
-        const base64 = String(reader.result).split(',')[1] || '';
-        window.postToApi({
-            action: 'UPLOAD_FILE',
-            token,
-            kind: 'audio',
-            fileName: fname,
-            mimeType: file.type || (/\.m4a$/i.test(fname) ? 'audio/mp4' : 'audio/mpeg'),
-            base64
-        }, true).then(j => {
-            if (j && j.ok && j.file && j.file.url) {
-                item.sourceMode = 'upload';
-                item.uploadUrl = j.file.url;
-                item.url = j.file.url;
-                if (typeof window.saveLocalAudioBlob === 'function') {
-                    window.saveLocalAudioBlob(j.file.url, file);
+    showToast('⏳ 正在上传音频文件到 Google Drive（请稍候，上传完成后将自动全网同步）...');
+    const uploadTask = new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onerror = () => {
+            showToast('❌ 音频文件读取失败');
+            resolve(false);
+        };
+        reader.onload = () => {
+            const base64 = String(reader.result).split(',')[1] || '';
+            window.postToApi({
+                action: 'UPLOAD_FILE',
+                token,
+                kind: 'audio',
+                fileName: fname,
+                mimeType: file.type || (/\.m4a$/i.test(fname) ? 'audio/mp4' : 'audio/mpeg'),
+                base64
+            }, true).then(j => {
+                if (j && j.ok && j.file && j.file.url) {
+                    item.sourceMode = 'upload';
+                    item.uploadUrl = j.file.url;
+                    item.url = j.file.url;
+                    if (typeof window.saveLocalAudioBlob === 'function') {
+                        window.saveLocalAudioBlob(j.file.url, file);
+                    }
+                    if (window.SiteContent && window.SiteContent.data) {
+                        window.SiteContent.data.music = cmsState.music;
+                    }
+                    renderCmsPanel();
+                    showToast('✅ 音频已上传到云端 Drive，正在自动同步全站歌单...');
+                    resolve(true);
+                    if (typeof window.cmsSaveContent === 'function') {
+                        window.cmsSaveContent(true);
+                    }
+                } else {
+                    showToast('⚠️ 云端返回异常，已保留本机缓存音频（' + ((j && j.error) || '上传失败') + '）');
+                    resolve(false);
                 }
-                if (window.SiteContent && window.SiteContent.data) {
-                    window.SiteContent.data.music = cmsState.music;
-                }
-                renderCmsPanel();
-                showToast('✅ 音频已上传到云端，记得点右上角保存下发');
-            } else {
-                showToast('⚠️ 云端返回异常，已保留本机缓存音频（' + ((j && j.error) || '上传失败') + '）');
-            }
-        }).catch(() => {
-            showToast('⚠️ 云端网络不可达，已保留本机缓存音频（本机可直接播放）');
-        });
-    };
-    reader.readAsDataURL(file);
+            }).catch(() => {
+                showToast('⚠️ 云端网络不可达，已保留本机缓存音频（本机可直接播放）');
+                resolve(false);
+            });
+        };
+        reader.readAsDataURL(file);
+    });
+    trackCmsUploadPromise(uploadTask);
 };
 
 window.cmsPreviewMusicTrack = function (index) {
@@ -2840,7 +2888,7 @@ window.cmsSet = function (group, index, key, value) {
     if (!item) return;
     cmsDirty = true;
     if ((group === 'appStoreList' || group === 'secretZoneList') && key === 'icon' && !String(value || '').trim()) {
-        item.icon = typeof window.getDefaultAppIcon === 'function' ? window.getDefaultAppIcon(item.name, '') : '';
+        item.icon = '';
     } else {
         item[key] = value;
     }
@@ -3038,7 +3086,7 @@ window.cmsAdd = function (group) {
         cmsState[group].push({
             id: 'app_' + Date.now(),
             name: '新 App',
-            icon: typeof window.getDefaultAppIcon === 'function' ? window.getDefaultAppIcon('新 App', '') : '',
+            icon: '',
             qrMode: 'link',
             url: 'https://apps.apple.com/',
             imgPath: '',
@@ -3063,7 +3111,7 @@ window.cmsAdd = function (group) {
         cmsState[group].push({
             id: 'secret_' + Date.now(),
             name: '新隐藏项',
-            icon: typeof window.getDefaultAppIcon === 'function' ? window.getDefaultAppIcon('新隐藏项', '') : '',
+            icon: '',
             qrMode: 'link',
             url: 'https://',
             imgPath: '',
@@ -3138,67 +3186,94 @@ window.cmsPreviewGuide = function () {
     setTimeout(() => { if (modal) modal.style.display = 'none'; }, 0);
 };
 
-/** 立即将当前 cmsState 写入本地缓存并刷新前台展示 */
-function applyAndPersistLocal(state) {
+/** 仅将当前 cmsState 应用到内存运行时以刷新当前页面预览（绝不写入 localStorage 缓存） */
+function applyRuntimeCmsState(state) {
     normalizeCmsState(state);
     if (Array.isArray(state.baseWifiCards)) {
-        setShownIds(state.baseWifiCards.filter(c => c && c.visible !== false).map(c => c.id));
+        setShownIds(state.baseWifiCards.filter(c => isCmsCardVisible(c)).map(c => c.id));
     }
-    try {
-        localStorage.setItem('mnContentLocal', JSON.stringify(state));
-        localStorage.setItem('mnContentCache', JSON.stringify(state));
-    } catch (e) {}
     if (window.SiteContent) {
         window.SiteContent.data = clone(state);
         window.applySiteContent();
     }
 }
 
-window.cmsSaveContent = function () {
-    if (!cmsState) cmsState = normalizeCmsState(clone(window.getSiteContent()));
-    else normalizeCmsState(cmsState);
-
-    // 先在本地立即生效并写入持久化存储（刷新仍保持）
-    cmsDirty = false;
-    applyAndPersistLocal(cmsState);
-    renderCmsPanel();
-    if (typeof injectAdminControls === 'function') injectAdminControls();
-
-    // 未配置云端时：仅保存到本机浏览器
+window.cmsSaveContent = async function (isAutoSync) {
     if (!window.hasCloudApi || !window.hasCloudApi()) {
-        return showToast('💾 已保存到本机并生效（部署云端后可同步给所有人）');
+        return showToast('⚠️ 未配置云端接口（REPORT_API_URL 为空），无法下发保存');
     }
 
     const token = getAdminToken();
     if (!token) {
-        return showToast('💾 已保存到本机并立即生效（输入管理密钥后可同步至云端）');
+        return showToast('⚠️ 请输入后台管理密钥后再保存下发');
     }
-    showToast('🚀 正在下发到云端...');
-    window.postToApi({ action: 'SAVE_CONTENT', token, content: cmsState }, true)
+
+    // 若当前仍有正在上传中的音频/图片文件，先等待上传完成拿到 Google Drive 外链后再保存，绝不把本机 local-audio:// 推上云端
+    if (Array.isArray(window.__cmsPendingUploadPromises) && window.__cmsPendingUploadPromises.length > 0) {
+        showToast('⏳ 正在等待音频/文件上传云端完成后自动下发...');
+        try {
+            await Promise.allSettled(window.__cmsPendingUploadPromises.slice());
+        } catch (e) {}
+    }
+
+    if (!cmsState) cmsState = normalizeCmsState(clone(window.getSiteContent()));
+    else normalizeCmsState(cmsState);
+
+    // 精简 SITE_CONTENT 载荷（剔除内置大体积 SVG Data URI，控制在 ~6KB 内，避免触发 Apps Script 单键 9KB 上限）
+    const compactPayload = typeof window.compactSiteContentForSave === 'function'
+        ? window.compactSiteContentForSave(cmsState)
+        : cmsState;
+
+    if (!isAutoSync) {
+        showToast('🚀 正在保存并全网下发到云端...');
+    }
+    window.postToApi({ action: 'SAVE_CONTENT', token, content: compactPayload }, true)
         .then(j => {
             if (j && j.ok) {
-                // 同步「前台展示」等展示配置，保证新卡片在所有人设备上可见
-                const cfg = {};
-                ['cfgDataMode', 'cfgTotalMode', 'cfgTotalOffset', 'cfgTotalFixed', 'cfgOnlineFixed', 'cfgShowSoftRouter', 'cfgShowWifiCards'].forEach(k => {
-                    const v = localStorage.getItem(k);
-                    if (v !== null && v !== undefined) cfg[k] = v;
-                });
+                cmsDirty = false;
+                if (j.content && typeof j.content === 'object' && Object.keys(j.content).length > 0 && typeof window.buildRemoteContent === 'function') {
+                    window.SiteContent.data = window.buildRemoteContent(j.content);
+                    cmsState = normalizeCmsState(clone(window.SiteContent.data));
+                } else {
+                    applyRuntimeCmsState(cmsState);
+                }
+                window.SiteContent.remote = true;
+                window.SiteContent.fetchFailed = false;
+                window.applySiteContent();
+                if (typeof injectAdminControls === 'function') injectAdminControls();
+
+                // 同步「前台展示」等展示配置到云端表格
+                const sc = window.SiteConfig || {};
+                const visibleWifiIds = ((window.SiteContent.data && window.SiteContent.data.baseWifiCards) || [])
+                    .filter(c => isCmsCardVisible(c))
+                    .map(c => c.id)
+                    .join(',');
+                sc.cfgShowWifiCards = visibleWifiIds;
+                const cfg = {
+                    cfgDataMode: sc.cfgDataMode || 'real',
+                    cfgTotalMode: sc.cfgTotalMode || 'offset',
+                    cfgTotalOffset: sc.cfgTotalOffset || '1240',
+                    cfgTotalFixed: sc.cfgTotalFixed || '8888',
+                    cfgOnlineFixed: sc.cfgOnlineFixed || '18',
+                    cfgShowSoftRouter: sc.cfgShowSoftRouter || 'false',
+                    cfgShowWifiCards: visibleWifiIds
+                };
                 window.postToApi(Object.assign({ action: 'UPDATE_CONFIG', token }, cfg), true).catch(() => {});
 
-                // 若云端已返回最新持久化内容，可清除本地待同步标记
-                if (j.content && typeof j.content === 'object' && Object.keys(j.content).length > 0) {
-                    try { localStorage.removeItem('mnContentLocal'); } catch (e) {}
-                    window.SiteContent.remote = true;
-                }
-                showToast('✅ 已保存并全网下发');
+                showToast(isAutoSync
+                    ? '✅ 音乐与配置已自动同步到云端，任何电脑打开即可收听！'
+                    : '✅ 已保存并全网下发，所有电脑刷新即刻生效！');
                 renderCmsPanel();
             } else {
-                showToast('⚠️ 云端下发失败（' + ((j && j.error) || '密钥错误') + '），已保存在本机生效');
-                localStorage.removeItem(CMS_TOKEN_KEY);
+                const errMsg = (j && j.error) || '密钥错误或后端异常';
+                showToast('❌ 云端下发失败：' + errMsg);
+                if (String(errMsg).includes('密钥')) {
+                    localStorage.removeItem(CMS_TOKEN_KEY);
+                }
             }
         })
         .catch(e => {
-            showToast('⚠️ 网络异常（' + e.message + '），已保存在本机生效');
+            showToast('❌ 云端保存请求异常：' + e.message);
         });
 };
 
@@ -3612,13 +3687,107 @@ function drawTrafficChartFromLogs(logs) {
 }
 
 /**
+ * 将任意时间字符串（含 ISO UTC "2026-10-23T08:59:36.000Z" 或 gviz Date(...)）标准化为北京时间 "YYYY/MM/DD HH:mm:ss"
+ */
+function formatChinaDateTimeStr(raw) {
+    if (!raw && raw !== 0) return '';
+    const s = String(raw).trim();
+    if (!s) return '';
+    const gviz = /^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)$/.exec(s);
+    if (gviz) {
+        const p = (n) => String(Number(n || 0)).padStart(2, '0');
+        return `${gviz[1]}/${p(Number(gviz[2]) + 1)}/${p(gviz[3])} ${p(gviz[4])}:${p(gviz[5])}:${p(gviz[6])}`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+        const dt = new Date(s);
+        if (!isNaN(dt.getTime())) {
+            const utc = dt.getTime() + dt.getTimezoneOffset() * 60000;
+            const cn = new Date(utc + 8 * 3600000);
+            const p = (n) => String(n).padStart(2, '0');
+            return `${cn.getFullYear()}/${p(cn.getMonth() + 1)}/${p(cn.getDate())} ${p(cn.getHours())}:${p(cn.getMinutes())}:${p(cn.getSeconds())}`;
+        }
+    }
+    const m = /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/.exec(s);
+    if (m) {
+        const p = (n) => String(Number(n || 0)).padStart(2, '0');
+        return `${m[1]}/${p(m[2])}/${p(m[3])} ${p(m[4])}:${p(m[5])}:${p(m[6])}`;
+    }
+    return s;
+}
+
+/**
+ * 标准化单条流水对象：兼容老版「访问流水」5列格式（详情在 ua 字段、时间为 ISO UTC）、
+ * 「工作表1」6列格式、以及新版 9列 MN_Logs 格式
+ */
+function normalizeAuditLogItem(rawLog) {
+    if (!rawLog || typeof rawLog !== 'object') return null;
+    const log = Object.assign({}, rawLog);
+    if (log.dataType && (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(String(log.dataType)))) {
+        log.ua = log.geo;
+        log.geo = log.ip;
+        log.ip = log.time;
+        log.time = log.dataType;
+        log.dataType = 'ACCESS_LOG';
+    }
+    log.time = formatChinaDateTimeStr(log.time);
+    const dt = getNormalizedLogType(log) || 'ACCESS_LOG';
+    log.dataType = dt;
+    log.ip = String(log.ip || log.operatorIp || '未知 IP').trim();
+    log.geo = String(log.geo || log.operatorGeo || '未知地区').trim();
+    log.operatorIp = String(log.operatorIp || log.ip || '未知 IP').trim();
+    log.operatorGeo = String(log.operatorGeo || log.geo || '未知地区').trim();
+
+    if (dt === 'FEEDBACK') {
+        if (!log.user) log.user = log.ip;
+        if (!log.contact) log.contact = log.geo;
+        if (!log.content) log.content = String(log.rawContent || log.ua || '');
+        if (!log.rawContent) log.rawContent = log.content;
+        if (!log.action) log.action = '💡 提交建议';
+    } else if (dt === 'PROXY_TEST') {
+        if (!log.rawContent) log.rawContent = String(log.ua || '');
+        if (!log.action) {
+            log.action = (log.rawContent.includes('成功') || log.rawContent.includes('Success'))
+                ? '🔍 物理定位 (定位解析成功)'
+                : '🔍 物理定位 (解析失败)';
+        }
+    } else if (dt === 'SINGLE_GEN') {
+        if (!log.rawContent) log.rawContent = String(log.ua || '');
+        if (!log.action) log.action = '⚡ 快捷生成';
+    } else if (dt === 'PROXY_USAGE' || dt === 'BATCH_CLEAN') {
+        if (!log.rawContent) log.rawContent = String(log.ua || '');
+        if (!log.action) log.action = '📋 报表清洗';
+    }
+
+    if (!log.dateYmd) {
+        log.dateYmd = extractLogYmd(log);
+    }
+    return log;
+}
+
+function normalizeAuditLogsList(rawList) {
+    if (!Array.isArray(rawList)) return [];
+    const seen = new Set();
+    const out = [];
+    for (let i = 0; i < rawList.length; i++) {
+        const item = normalizeAuditLogItem(rawList[i]);
+        if (!item || (!item.time && !item.dateYmd)) continue;
+        const sig = item._lid
+            ? `lid:${item._lid}`
+            : `sig:${item.time}|${item.dataType}|${item.ip}|${item.rawContent || item.ua || ''}`;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        out.push(item);
+    }
+    return out;
+}
+
+/**
  * 覆盖 renderTrafficChart：按所选日期请求后端 action=range 数据后再统计并渲染
- * 保留现有 ECharts dataZoom 滑块，趋势图始终展示真实数据
  */
 window.renderTrafficChart = function (initialLogs) {
     if (Array.isArray(initialLogs) && initialLogs.length) {
-        window.__cachedAllLogs = initialLogs;
-        drawTrafficChartFromLogs(initialLogs);
+        window.__cachedAllLogs = normalizeAuditLogsList(initialLogs);
+        drawTrafficChartFromLogs(window.__cachedAllLogs);
     }
 
     const fromInput = document.getElementById('chartDateFrom');
@@ -3635,15 +3804,22 @@ window.renderTrafficChart = function (initialLogs) {
     fetch(rangeUrl, { cache: 'no-store' })
         .then(r => r.json())
         .then(data => {
-            const rawLogs = Array.isArray(data) ? data : (data.logs || []);
-            const filtered = filterLogsByDateRange(rawLogs, from, to);
+            const logs = normalizeAuditLogsList(Array.isArray(data) ? data : (data.logs || []));
+            if (!from && !to && logs.length) {
+                window.__cachedAllLogs = logs;
+            }
+            const filtered = filterLogsByDateRange(logs, from, to);
             drawTrafficChartFromLogs(filtered);
             if (from || to) {
                 window.renderLogTable(filtered);
             }
         })
         .catch(() => {
-            drawTrafficChartFromLogs(window.__cachedAllLogs);
+            const filtered = filterLogsByDateRange(window.__cachedAllLogs, from, to);
+            drawTrafficChartFromLogs(filtered);
+            if (from || to) {
+                window.renderLogTable(filtered);
+            }
         });
 };
 
@@ -3655,7 +3831,7 @@ window.renderLogTable = function (logs) {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const safeLogs = Array.isArray(logs) ? logs : [];
+    const safeLogs = normalizeAuditLogsList(Array.isArray(logs) ? logs : []);
     if (safeLogs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:40px">所选日期区间内暂无流水记录</td></tr>';
     }
@@ -3663,8 +3839,14 @@ window.renderLogTable = function (logs) {
     const nowMs = Date.now();
     const activeIps = new Set();
 
-    safeLogs.forEach(rawLog => {
-        const log = Object.assign({}, rawLog);
+    // 最新记录排在最上方展示
+    const displayLogs = safeLogs.slice().sort((a, b) => {
+        const ta = Date.parse(String(a.time || '').replace(/\//g, '-')) || 0;
+        const tb = Date.parse(String(b.time || '').replace(/\//g, '-')) || 0;
+        return tb - ta;
+    });
+
+    displayLogs.forEach(log => {
         const tr = document.createElement('tr');
         let typeColor = '#57606a';
         let actionName = '未知流水';
@@ -3678,7 +3860,7 @@ window.renderLogTable = function (logs) {
             actionName = '💡 提交建议';
             userOrIp = `[署名] ${log.user || '-'}`;
             locationOrProxy = `[联系] ${log.contact || '-'}`;
-            detailInfo = log.content || '';
+            detailInfo = log.content || log.rawContent || '';
         } else if (normType === 'PROXY_USAGE' || normType === 'BATCH_CLEAN') {
             typeColor = '#34C759';
             actionName = log.action || '⚡ 批量清洗';
@@ -3700,12 +3882,6 @@ window.renderLogTable = function (logs) {
         } else {
             typeColor = '#007AFF';
             actionName = '🌐 系统页面访问';
-            if (log.dataType && (/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(String(log.dataType)))) {
-                log.ua = log.geo;
-                log.geo = log.ip;
-                log.ip = log.time;
-                log.time = log.dataType;
-            }
             userOrIp = log.ip || log.operatorIp || '-';
             locationOrProxy = log.geo || log.operatorGeo || '-';
             detailInfo = log.ua || '';
@@ -3724,7 +3900,8 @@ window.renderLogTable = function (logs) {
     window.lastCalculatedRealOnline = activeIps.size;
     const realOnlineIpEl = document.getElementById('realOnlineIp');
     if (realOnlineIpEl) realOnlineIpEl.innerText = String(window.lastCalculatedRealOnline);
-    if ((localStorage.getItem('cfgDataMode') || 'real') === 'real') {
+    const curMode = (window.SiteConfig && window.SiteConfig.cfgDataMode) || 'real';
+    if (curMode === 'real') {
         const oEl = document.getElementById('onlineCount');
         if (oEl) oEl.innerText = String(window.lastCalculatedRealOnline);
     }
@@ -3734,6 +3911,7 @@ window.renderLogTable = function (logs) {
  * 覆盖 refreshAdminLogs：
  * - real 模式下严格统计 dataType === 'ACCESS_LOG' 的真实条数，无任何 +1 虚增、随机数或偏移量
  * - custom 模式仅在后台显式开启 (cfgDataMode === 'custom') 时才对顶栏数字生效
+ * - 配置仅存内存 window.SiteConfig，不写 localStorage
  */
 window.refreshAdminLogs = function () {
     const tbody = document.querySelector('#adminLogTable tbody');
@@ -3743,37 +3921,46 @@ window.refreshAdminLogs = function () {
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:40px">正在建立安全信道，拉取云端数据总线...</td></tr>';
 
     if (typeof REPORT_API_URL !== 'undefined' && REPORT_API_URL) {
-        const noCacheUrl = REPORT_API_URL + '?t=' + Date.now();
+        const noCacheUrl = REPORT_API_URL + '?_t=' + Date.now();
         fetch(noCacheUrl, { cache: 'no-store' })
             .then(res => res.json())
             .then(data => {
-                const logs = Array.isArray(data) ? data : (data.logs || []);
+                const logs = normalizeAuditLogsList(Array.isArray(data) ? data : (data.logs || []));
                 window.__cachedAllLogs = logs;
 
-                // 同步云端展示配置
-                if (data && data.config && typeof data.config === 'object') {
+                const sc = window.SiteConfig || {};
+                if (data && data.config) {
                     ['cfgDataMode', 'cfgTotalMode', 'cfgTotalOffset', 'cfgTotalFixed', 'cfgOnlineFixed', 'cfgShowSoftRouter', 'cfgShowWifiCards'].forEach(k => {
                         const v = data.config[k];
-                        if (v !== undefined && v !== null && v !== '') localStorage.setItem(k, v);
+                        if (v !== undefined && v !== null && v !== '') sc[k] = String(v);
                     });
                     if (typeof window.applyWifiLayoutConfig === 'function') window.applyWifiLayoutConfig();
                 }
 
-                // 严格计算 dataType === 'ACCESS_LOG' 的真实访问记录数（绝不加 +1 或偏移）
-                const realAccessCount = (data && typeof data.accessTotal === 'number')
+                // 若默认接口一并返回了最新云端 SITE_CONTENT，同步刷新到运行时（严格以云端为准）
+                if (data && data.content && typeof data.content === 'object' && Object.keys(data.content).length > 0) {
+                    if (window.SiteContent && !window.SiteContent.remote && typeof window.buildRemoteContent === 'function') {
+                        window.SiteContent.data = window.buildRemoteContent(data.content);
+                        window.SiteContent.remote = true;
+                        window.SiteContent.fetchFailed = false;
+                        window.applySiteContent();
+                    }
+                }
+
+                const realAccessCount = (data && typeof data.accessTotal === 'number' && data.accessTotal > 0)
                     ? data.accessTotal
                     : logs.filter(l => getNormalizedLogType(l) === 'ACCESS_LOG').length;
 
-                localStorage.setItem('lastTotalCount', String(realAccessCount));
+                sc.lastTotalCount = realAccessCount;
 
-                const mode = localStorage.getItem('cfgDataMode') || 'real';
+                const mode = sc.cfgDataMode || 'real';
                 let finalDisplay = realAccessCount;
                 if (mode === 'custom') {
-                    const tMode = localStorage.getItem('cfgTotalMode') || 'offset';
+                    const tMode = sc.cfgTotalMode || 'offset';
                     if (tMode === 'fixed') {
-                        finalDisplay = parseInt(localStorage.getItem('cfgTotalFixed') || '8888', 10);
+                        finalDisplay = parseInt(sc.cfgTotalFixed || '8888', 10);
                     } else {
-                        finalDisplay = realAccessCount + parseInt(localStorage.getItem('cfgTotalOffset') || '1240', 10);
+                        finalDisplay = realAccessCount + parseInt(sc.cfgTotalOffset || '1240', 10);
                     }
                 }
 
@@ -3783,9 +3970,10 @@ window.refreshAdminLogs = function () {
 
                 window.renderLogTable(logs);
                 window.renderTrafficChart(logs);
+                if (typeof startOnlineHeartbeat === 'function') startOnlineHeartbeat();
             })
             .catch(() => {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#FF2D55; font-weight:bold; padding:40px">❌ 链路断开：仅展示本地缓存数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#FF2D55; font-weight:bold; padding:40px">❌ 链路断开：请检查云端后端连接</td></tr>';
             });
     }
 };
