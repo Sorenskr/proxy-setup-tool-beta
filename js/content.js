@@ -33,7 +33,12 @@
 
     function getCmsApiBase() {
         if (window.__activeCmsApiUrl) return window.__activeCmsApiUrl;
-        return getPrimaryApiBase() || CMS_CLOUD_FALLBACK_URL;
+        const primary = getPrimaryApiBase();
+        // 若主接口为已知的老版 V1 纯流水端点，直接使用已部署 V2 的云端配置中心，省去一次多余请求等待
+        if (!primary || primary.indexOf('AKfycbzgFbkbKnX8TrcX_UN-JeN9WjnF95rKFBpXemPJbS7XSYe35DgeNnYo-57znlp2WJXj') !== -1) {
+            return CMS_CLOUD_FALLBACK_URL;
+        }
+        return primary;
     }
 
     window.getCmsApiUrl = function (extra) {
